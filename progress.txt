@@ -416,3 +416,28 @@
 - PluginRegistry needs IsOutputPlugin/IsTransformPlugin methods to support this detection
 - The channel closed error message at shutdown is expected and harmless
 
+## [US-017] - Implement FilterTransform plugin - 2026-01-29
+
+### Implementation
+- Created FilterTransform.cs in Gluey.Plugins/Transforms/ implementing ITransformPlugin
+- Built a custom expression evaluator supporting:
+  - Comparisons: > < >= <= == !=
+  - Logical operators: && ||
+  - Nested field access: device.location.type
+  - Literals: numbers, strings (quoted), booleans, null
+  - Parenthesized expressions for grouping
+- Filter reads "condition" from config (set by parser for filter(expression) syntax)
+- Returns message if condition evaluates to true, null if false (filtered out)
+- Registered FilterTransform as "filter" in PluginRegistry
+
+### Files Modified
+- src/Gluey.Plugins/Transforms/FilterTransform.cs (new - ~350 lines)
+- src/Gluey.Runtime/PluginRegistry.cs (uncommented filter registration)
+
+### Learnings
+- Expression evaluation done via recursive descent parser with proper precedence (|| < &&)
+- JsonElement provides GetDouble(), GetString(), TryGetProperty() for extracting values
+- Nested field access implemented by splitting path on "." and traversing JsonElement
+- Numeric comparisons use small epsilon for floating point equality
+- String comparisons fall back to lexicographic ordering for >/< operators
+
