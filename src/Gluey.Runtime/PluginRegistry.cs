@@ -50,7 +50,7 @@ public sealed class PluginRegistry
         RegisterTransform("filter", () => new FilterTransform());
         RegisterTransform("transform", () => new TransformTransform());
         RegisterTransform("decode.binary", () => new BinaryDecodeTransform());
-        // RegisterTransform("decode.base64", () => new Base64DecodeTransform());
+        RegisterTransform("decode.base64", () => new Base64DecodeTransform());
         // RegisterTransform("decode.hex", () => new HexDecodeTransform());
         // RegisterTransform("route", () => new RouteTransform());
 

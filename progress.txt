@@ -586,3 +586,25 @@
 - JsonNode/JsonObject/JsonValue from System.Text.Json.Nodes useful for building dynamic JSON
 - Span<byte> pattern efficient for slicing binary data without allocations
 
+## [US-021] - Implement Base64DecodeTransform plugin - 2026-01-29
+
+### Implementation
+- Created Base64DecodeTransform.cs in Gluey.Plugins/Transforms/ implementing ITransformPlugin
+- Reads base64 string from specified field or common field names (frm_payload, payload, data, base64)
+- Decodes base64 string to raw bytes using Convert.FromBase64String
+- If format array is specified, passes decoded bytes to BinaryDecodeTransform for structured extraction
+- Without format, stores decoded bytes in metadata as "raw_bytes" (base64-encoded) for downstream transforms
+- Includes IsLikelyBase64 helper to validate base64 strings before decoding
+- Handles FormatException for invalid base64 gracefully (returns null to drop message)
+- Registered decode.base64 in PluginRegistry
+
+### Files Modified
+- src/Gluey.Plugins/Transforms/Base64DecodeTransform.cs (new - ~170 lines)
+- src/Gluey.Runtime/PluginRegistry.cs (uncommented decode.base64 registration)
+
+### Learnings
+- Base64DecodeTransform can compose with BinaryDecodeTransform for combined decoding pipelines
+- Common LoRaWAN field name "frm_payload" contains base64-encoded sensor data
+- Convert.FromBase64String throws FormatException for invalid input - catch and drop message
+- Reusing BinaryDecodeTransform via composition avoids code duplication for binary format parsing
+
