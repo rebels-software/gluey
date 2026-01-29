@@ -761,3 +761,36 @@
 - If no route matches and no default output, message is dropped (intentional for strict routing)
 - GlueyHostedService detects routing by checking if any Route has DestinationSteps
 
+## [US-028] - Implement SqlOutput plugin - 2026-01-29
+
+### Implementation
+- Added Npgsql v9.0.3 and Microsoft.Data.SqlClient v6.0.1 packages to Gluey.Plugins.csproj
+- Created SqlOutput.cs in Gluey.Plugins/Outputs/ implementing IOutputPlugin
+- Features:
+  - Connects to database via connection string (connection_string or url config)
+  - Auto-detects dialect from connection string prefix:
+    - PostgreSQL: Host=, postgres://, postgresql://, Server= with Port=
+    - SQL Server: Data Source=, Initial Catalog=, Database=, sqlserver://, mssql://
+  - Inserts into configured table with column-to-field mappings
+  - Column config formats: object { column: "field" } or array [{ column, field }]
+  - Maps message payload fields to SQL columns using nested path support (e.g., "device.location.id")
+  - Value type handling: strings, integers, longs, doubles, booleans, nulls, JSON for objects/arrays
+  - Graceful error handling: logs insert failures to stderr and continues (doesn't crash workflow)
+  - Proper identifier quoting: PostgreSQL uses "", SQL Server uses []
+  - Both dialects use @ parameter prefix
+- Registered "sql" output plugin in PluginRegistry
+
+### Files Modified
+- src/Gluey.Plugins/Gluey.Plugins.csproj (added Npgsql and Microsoft.Data.SqlClient packages)
+- src/Gluey.Plugins/Outputs/SqlOutput.cs (new - ~300 lines)
+- src/Gluey.Runtime/PluginRegistry.cs (uncommented sql registration)
+
+### Learnings
+- System.Data.Common.DbConnection provides abstraction over Npgsql and SqlConnection
+- DbConnection.CreateCommand() returns DbCommand which works with both dialects
+- Npgsql connection strings use Host= while SqlClient uses Server=/Data Source=
+- Both providers support @paramName parameter syntax
+- Graceful error handling is critical for IoT pipelines - don't crash on single insert failure
+- DbParameter.Value must use DBNull.Value for null, not C# null
+- Connection-per-write pattern is simpler than connection pooling for initial implementation
+

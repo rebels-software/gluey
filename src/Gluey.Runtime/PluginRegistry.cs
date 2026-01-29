@@ -58,7 +58,7 @@ public sealed class PluginRegistry
         RegisterOutput("console", () => new ConsoleOutput());
         // RegisterOutput("http", () => new HttpOutput());
         RegisterOutput("mqtt", () => new MqttPublisherOutput());
-        // RegisterOutput("sql", () => new SqlOutput());
+        RegisterOutput("sql", () => new SqlOutput());
     }
 
     /// <summary>
