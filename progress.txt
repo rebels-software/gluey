@@ -1,0 +1,112 @@
+# Ralph Progress Log - Gluey CLI MVP
+# Branch: ralph/gluey-cli-mvp
+# Started: 2026-01-29
+
+## Summary
+- Total Stories: 36
+- Completed: 4
+- In Progress: 0
+- Remaining: 32
+
+## Codebase Patterns
+- Solution uses traditional `.sln` format (not `.slnx`)
+- All projects target `net10.0`
+- Project structure: `src/` for main code, `tests/` for test projects
+- Test project uses xUnit
+
+## Progress
+
+## [US-001] - Create solution structure - 2026-01-29
+
+### Implementation
+- Created Gluey.sln solution file with traditional .sln format
+- Created 5 main projects: Gluey.Cli, Gluey.Core, Gluey.Parser, Gluey.Runtime, Gluey.Plugins
+- Created test project: Gluey.Parser.Tests (xUnit)
+- All projects target .NET 10
+
+### Files Modified
+- Gluey.sln
+- src/Gluey.Cli/Gluey.Cli.csproj
+- src/Gluey.Core/Gluey.Core.csproj
+- src/Gluey.Parser/Gluey.Parser.csproj
+- src/Gluey.Runtime/Gluey.Runtime.csproj
+- src/Gluey.Plugins/Gluey.Plugins.csproj
+- tests/Gluey.Parser.Tests/Gluey.Parser.Tests.csproj
+
+### Learnings
+- .NET 10 SDK creates `.slnx` by default; use `--format sln` for traditional format
+- `dotnet new xunit` scaffolds a working test project with one passing test
+- Build and test commands work from solution root
+
+## [US-002] - Define core domain models - 2026-01-29
+
+### Implementation
+- Created 4 domain models in Gluey.Core/Models/:
+  - Flow: name, version, input (InputNode), pipeline steps, routes
+  - InputNode: type, url, config dictionary
+  - PipelineStep: type, config dictionary (JsonElement values), on_error handling
+  - OnErrorConfig + OnErrorAction enum: skip or route_to actions
+  - Message: record with JsonDocument payload, Dictionary<string,string> metadata, DateTimeOffset timestamp
+  - Route: name, condition expression string, destination steps
+- Removed placeholder Class1.cs
+
+### Files Modified
+- src/Gluey.Core/Models/Flow.cs (new)
+- src/Gluey.Core/Models/PipelineStep.cs (new)
+- src/Gluey.Core/Models/Message.cs (new)
+- src/Gluey.Core/Models/Route.cs (new)
+- src/Gluey.Core/Class1.cs (deleted)
+
+### Learnings
+- Used `required` keyword for mandatory init-only properties
+- Used `IReadOnlyDictionary<string, JsonElement>` for config to support arbitrary JSON values
+- Message is a `record` type for immutability and value equality
+- Helper methods (WithPayload, WithMetadata) enable immutable updates
+
+## [US-003] - Define plugin interfaces - 2026-01-29
+
+### Implementation
+- Created 3 plugin interfaces in Gluey.Core/Abstractions/:
+  - IInputPlugin: Type property, InitializeAsync, ReadAsync (IAsyncEnumerable<Message>), IAsyncDisposable
+  - ITransformPlugin: Type property, InitializeAsync, ProcessAsync (returns Message or null for filtering)
+  - IOutputPlugin: Type property, InitializeAsync, WriteAsync, IAsyncDisposable
+
+### Files Modified
+- src/Gluey.Core/Abstractions/IInputPlugin.cs (new)
+- src/Gluey.Core/Abstractions/ITransformPlugin.cs (new)
+- src/Gluey.Core/Abstractions/IOutputPlugin.cs (new)
+
+### Learnings
+- IInputPlugin and IOutputPlugin implement IAsyncDisposable for resource cleanup (connections, listeners)
+- ITransformPlugin does not need disposal as transforms are typically stateless
+- Config type uses `IReadOnlyDictionary<string, JsonElement>` to match PipelineStep.Config
+- ProcessAsync returns `Message?` - null signals message should be filtered/dropped from pipeline
+
+## [US-004] - Implement DSL lexer - 2026-01-29
+
+### Implementation
+- Created Lexer.cs in Gluey.Parser with:
+  - TokenType enum: keywords (flow, from, route, on_error, schema, migrate, filter, transform, enrich, description), literals (string, number, true, false, null), identifiers, all symbols, operators
+  - Token record: Type, Value, Line, Column for error reporting
+  - Lexer class: hand-rolled recursive descent lexer with full tokenization support
+- Features implemented:
+  - Keywords: flow, from, route, on_error, schema, migrate, filter, transform, enrich, description
+  - Symbols: { } [ ] ( ) | : -> , . ?
+  - Operators: && || == != > < >= <= + - * / & ^ !
+  - Literals: double/single quoted strings with escape sequences, numbers (int, float, hex 0x), booleans
+  - Identifiers: standard alphanumeric + underscore naming
+  - Comments: // single-line and /* */ multi-line
+  - Whitespace handling with line/column tracking
+- Removed placeholder Class1.cs
+
+### Files Modified
+- src/Gluey.Parser/Lexer.cs (new - 466 lines)
+- src/Gluey.Parser/Class1.cs (deleted)
+
+### Learnings
+- Used sealed record for Token for immutability and value equality
+- Keywords dictionary is case-insensitive (StringComparer.OrdinalIgnoreCase)
+- Dotted names (json.parse, decode.binary) are tokenized as separate Identifier and Dot tokens - the parser will combine them
+- Line/column tracking is critical for good error messages
+- StringBuilder used for string and number scanning for efficiency
+
