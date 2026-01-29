@@ -130,10 +130,10 @@ static async Task<int> RunWorkflow(FileInfo file)
         // Build the host with GlueyHostedService
         var builder = Host.CreateApplicationBuilder();
 
-        // Configure logging - only warnings and errors in production
+        // Configure logging
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole();
-        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        builder.Logging.SetMinimumLevel(LogLevel.Information);
 
         // Register services
         builder.Services.AddSingleton(new PluginRegistry());
