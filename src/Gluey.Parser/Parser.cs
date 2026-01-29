@@ -83,6 +83,9 @@ public sealed class Parser
         var pipelineSteps = new List<PipelineStep>();
         var routes = new List<Route>();
 
+        // Dictionary to track route conditions by name (for merging with destinations)
+        var routeConditions = new Dictionary<string, string>();
+
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
             if (Check(TokenType.From))
@@ -95,12 +98,36 @@ public sealed class Parser
             }
             else if (Check(TokenType.Pipe))
             {
-                pipelineSteps.Add(ParsePipelineStep());
+                var step = ParsePipelineStep();
+                pipelineSteps.Add(step);
+
+                // If this was a route step, extract route conditions
+                if (step.Type == "route")
+                {
+                    foreach (var kvp in step.Config)
+                    {
+                        var condition = kvp.Value.ValueKind == System.Text.Json.JsonValueKind.String
+                            ? kvp.Value.GetString()!
+                            : kvp.Value.ToString();
+                        routeConditions[kvp.Key] = condition;
+                    }
+                }
             }
-            else if (Check(TokenType.Route))
+            else if (Check(TokenType.Identifier))
             {
-                // Route parsing will be implemented in US-006
-                throw new ParseException("Route blocks not yet implemented", Current());
+                // This could be a route destination: name -> output(...)
+                var routeDest = ParseRouteDestination();
+                if (routeDest != null)
+                {
+                    // Look up the condition from the route block
+                    var condition = routeConditions.TryGetValue(routeDest.Name, out var cond) ? cond : "";
+                    routes.Add(new Route
+                    {
+                        Name = routeDest.Name,
+                        Condition = condition,
+                        DestinationSteps = routeDest.DestinationSteps
+                    });
+                }
             }
             else
             {
@@ -233,16 +260,25 @@ public sealed class Parser
 
             if (!Check(TokenType.RightParen))
             {
-                // For now, treat single argument as "field" config for things like json.parse(payload)
-                var args = ParseArgumentList();
-                if (args.Count == 1)
+                // For filter, transform, and route with parentheses, parse as expression
+                if (transformType == "filter")
                 {
-                    config["field"] = args[0];
+                    var expression = ParseExpression();
+                    config["condition"] = JsonSerializer.SerializeToElement(expression);
                 }
                 else
                 {
-                    // Store as positional args
-                    config["args"] = JsonSerializer.SerializeToElement(args.Select(e => e.ToString()).ToArray());
+                    // For other transforms, treat single argument as "field" config
+                    var args = ParseArgumentList();
+                    if (args.Count == 1)
+                    {
+                        config["field"] = args[0];
+                    }
+                    else
+                    {
+                        // Store as positional args
+                        config["args"] = JsonSerializer.SerializeToElement(args.Select(e => e.ToString()).ToArray());
+                    }
                 }
             }
 
@@ -260,8 +296,16 @@ public sealed class Parser
         }
         else if (Check(TokenType.LeftBrace))
         {
-            // Parse config block: { key: value, ... }
-            config = ParseConfigBlock();
+            // Special handling for route blocks: { name: condition, ... }
+            if (transformType == "route")
+            {
+                config = ParseRouteConditionsBlock();
+            }
+            else
+            {
+                // Parse config block: { key: value, ... }
+                config = ParseConfigBlock();
+            }
         }
 
         // Check for on_error in config
@@ -278,6 +322,194 @@ public sealed class Parser
             Config = config,
             OnError = onError
         };
+    }
+
+    /// <summary>
+    /// Parses a route conditions block: { name: condition, name2: condition2, ... }
+    /// Conditions are expressions like "temperature > 35" or "*" for catch-all.
+    /// </summary>
+    private Dictionary<string, JsonElement> ParseRouteConditionsBlock()
+    {
+        Expect(TokenType.LeftBrace, "Expected '{'");
+
+        var config = new Dictionary<string, JsonElement>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            // Parse route name
+            var keyToken = Current();
+            string key;
+
+            if (keyToken.Type == TokenType.Identifier)
+            {
+                key = keyToken.Value;
+                Advance();
+            }
+            else
+            {
+                throw new ParseException("Expected route name", keyToken);
+            }
+
+            // Expect colon
+            Expect(TokenType.Colon, "Expected ':' after route name");
+
+            // Parse condition expression or catch-all "*"
+            string condition;
+            if (Check(TokenType.Star))
+            {
+                Advance();
+                condition = "*";
+            }
+            else
+            {
+                condition = ParseExpression();
+            }
+
+            config[key] = JsonSerializer.SerializeToElement(condition);
+
+            // Optional comma between entries
+            if (Check(TokenType.Comma))
+            {
+                Advance();
+            }
+        }
+
+        Expect(TokenType.RightBrace, "Expected '}'");
+
+        return config;
+    }
+
+    /// <summary>
+    /// Parses an expression as a string (e.g., "temperature > 35 && humidity < 80").
+    /// Captures tokens until end of expression (comma, closing paren, closing brace).
+    /// </summary>
+    private string ParseExpression()
+    {
+        var tokens = new List<string>();
+        int parenDepth = 0;
+
+        while (!IsAtEnd())
+        {
+            var token = Current();
+
+            // Track parenthesis depth
+            if (token.Type == TokenType.LeftParen)
+            {
+                parenDepth++;
+                tokens.Add("(");
+                Advance();
+                continue;
+            }
+
+            if (token.Type == TokenType.RightParen)
+            {
+                if (parenDepth == 0)
+                {
+                    // End of expression
+                    break;
+                }
+                parenDepth--;
+                tokens.Add(")");
+                Advance();
+                continue;
+            }
+
+            // End expression on comma or closing brace (at top level)
+            if (parenDepth == 0 && (token.Type == TokenType.Comma || token.Type == TokenType.RightBrace))
+            {
+                break;
+            }
+
+            // End expression when we see "identifier:" pattern (start of next route condition)
+            // This handles multi-line route blocks without explicit separators
+            if (parenDepth == 0 && token.Type == TokenType.Identifier && CheckAhead(1, TokenType.Colon))
+            {
+                break;
+            }
+
+            // Add token to expression
+            switch (token.Type)
+            {
+                case TokenType.Identifier:
+                case TokenType.Number:
+                    tokens.Add(token.Value);
+                    break;
+                case TokenType.String:
+                    tokens.Add($"\"{token.Value}\"");
+                    break;
+                case TokenType.True:
+                    tokens.Add("true");
+                    break;
+                case TokenType.False:
+                    tokens.Add("false");
+                    break;
+                case TokenType.And:
+                    tokens.Add("&&");
+                    break;
+                case TokenType.Or:
+                    tokens.Add("||");
+                    break;
+                case TokenType.Equal:
+                    tokens.Add("==");
+                    break;
+                case TokenType.NotEqual:
+                    tokens.Add("!=");
+                    break;
+                case TokenType.GreaterThan:
+                    tokens.Add(">");
+                    break;
+                case TokenType.LessThan:
+                    tokens.Add("<");
+                    break;
+                case TokenType.GreaterOrEqual:
+                    tokens.Add(">=");
+                    break;
+                case TokenType.LessOrEqual:
+                    tokens.Add("<=");
+                    break;
+                case TokenType.Plus:
+                    tokens.Add("+");
+                    break;
+                case TokenType.Minus:
+                    tokens.Add("-");
+                    break;
+                case TokenType.Star:
+                    tokens.Add("*");
+                    break;
+                case TokenType.Slash:
+                    tokens.Add("/");
+                    break;
+                case TokenType.Bang:
+                    tokens.Add("!");
+                    break;
+                case TokenType.Ampersand:
+                    tokens.Add("&");
+                    break;
+                case TokenType.Caret:
+                    tokens.Add("^");
+                    break;
+                case TokenType.Dot:
+                    tokens.Add(".");
+                    break;
+                case TokenType.Question:
+                    tokens.Add("?");
+                    break;
+                case TokenType.Colon:
+                    tokens.Add(":");
+                    break;
+                case TokenType.Filter:
+                case TokenType.Transform:
+                case TokenType.Route:
+                    tokens.Add(token.Value);
+                    break;
+                default:
+                    throw new ParseException($"Unexpected token in expression: '{token.Value}'", token);
+            }
+
+            Advance();
+        }
+
+        return string.Join(" ", tokens);
     }
 
     /// <summary>
@@ -399,8 +631,17 @@ public sealed class Parser
                 return ParseObjectValue();
 
             case TokenType.Identifier:
-                // Could be a reference to another field or an enum-like value
                 Advance();
+                // Check for function-call syntax like route_to("name")
+                if (Check(TokenType.LeftParen))
+                {
+                    Advance(); // consume '('
+                    var argToken = Expect(TokenType.String, "Expected string argument");
+                    Expect(TokenType.RightParen, "Expected ')' after argument");
+                    // Return as "function_name(arg)" string for later parsing
+                    return JsonSerializer.SerializeToElement($"{token.Value}(\"{argToken.Value}\")");
+                }
+                // Could be a reference to another field or an enum-like value
                 return JsonSerializer.SerializeToElement(token.Value);
 
             default:
@@ -484,6 +725,114 @@ public sealed class Parser
         throw new ParseException($"Invalid on_error value: {value}", _tokens[_current > 0 ? _current - 1 : 0]);
     }
 
+    /// <summary>
+    /// Parses a single route destination: name -> output("config") or name -> [ outputs ]
+    /// </summary>
+    private Route? ParseRouteDestination()
+    {
+        // Parse route name
+        var nameToken = Current();
+        if (nameToken.Type != TokenType.Identifier)
+        {
+            return null;
+        }
+
+        // Look ahead for ->
+        if (!CheckAhead(1, TokenType.Arrow))
+        {
+            return null;
+        }
+
+        var routeName = nameToken.Value;
+        Advance(); // consume name
+
+        Expect(TokenType.Arrow, "Expected '->' after route name");
+
+        // Parse destination(s)
+        var destinationSteps = new List<PipelineStep>();
+
+        if (Check(TokenType.LeftBracket))
+        {
+            // Multiple outputs: [ output1, output2 ]
+            Advance(); // consume '['
+
+            while (!Check(TokenType.RightBracket) && !IsAtEnd())
+            {
+                var step = ParseOutputDestination();
+                destinationSteps.Add(step);
+
+                if (Check(TokenType.Comma))
+                {
+                    Advance();
+                }
+            }
+
+            Expect(TokenType.RightBracket, "Expected ']' after output list");
+        }
+        else
+        {
+            // Single output
+            var step = ParseOutputDestination();
+            destinationSteps.Add(step);
+        }
+
+        return new Route
+        {
+            Name = routeName,
+            Condition = "", // Condition is parsed from the route block, will be merged later
+            DestinationSteps = destinationSteps
+        };
+    }
+
+    /// <summary>
+    /// Parses an output destination: type("config") or type("config") { extra_config }
+    /// </summary>
+    private PipelineStep ParseOutputDestination()
+    {
+        // Parse output type (may be dotted like "influxdb" or just "kafka")
+        var outputType = ParseDottedIdentifier();
+
+        // Parse arguments in parentheses: ("topic")
+        var config = new Dictionary<string, JsonElement>();
+
+        if (Check(TokenType.LeftParen))
+        {
+            Advance(); // consume '('
+
+            if (!Check(TokenType.RightParen))
+            {
+                var args = ParseArgumentList();
+                if (args.Count == 1)
+                {
+                    config["target"] = args[0];
+                }
+                else
+                {
+                    config["args"] = JsonSerializer.SerializeToElement(args.Select(e => e.ToString()).ToArray());
+                }
+            }
+
+            Expect(TokenType.RightParen, "Expected ')' after arguments");
+        }
+
+        // Parse optional config block: { key: value, ... }
+        if (Check(TokenType.LeftBrace))
+        {
+            var blockConfig = ParseConfigBlock();
+            foreach (var kvp in blockConfig)
+            {
+                config[kvp.Key] = kvp.Value;
+            }
+        }
+
+        return new PipelineStep
+        {
+            Type = outputType,
+            Config = config,
+            OnError = null
+        };
+    }
+
     // ===== Helper Methods =====
 
     private Token Current()
@@ -507,6 +856,13 @@ public sealed class Parser
     {
         if (IsAtEnd()) return false;
         return Current().Type == type;
+    }
+
+    private bool CheckAhead(int offset, TokenType type)
+    {
+        var index = _current + offset;
+        if (index >= _tokens.Count) return false;
+        return _tokens[index].Type == type;
     }
 
     private Token Advance()

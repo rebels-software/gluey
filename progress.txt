@@ -4,9 +4,9 @@
 
 ## Summary
 - Total Stories: 36
-- Completed: 5
+- Completed: 6
 - In Progress: 0
-- Remaining: 31
+- Remaining: 30
 
 ## Codebase Patterns
 - Solution uses traditional `.sln` format (not `.slnx`)
@@ -137,4 +137,35 @@
 - Keywords like `filter`, `transform`, `route` can also be transform type names - parser handles both
 - JsonSerializer.SerializeToElement() is useful for converting parsed values to JsonElement
 - Route parsing deferred to US-006 per acceptance criteria breakdown
+
+## [US-006] - Implement DSL parser - routing and error handling - 2026-01-29
+
+### Implementation
+- Extended Parser.cs with routing and error handling support:
+  - `| route { name: condition }` - route blocks with multiple conditions
+  - `name -> <output>("config")` - route destination mapping
+  - `name -> [ output1, output2 ]` - multiple outputs per route
+  - `on_error: skip` - skip on error
+  - `on_error: route_to("name")` - route to error queue
+  - `*` as catch-all route condition
+- Key parsing methods added:
+  - `ParseRouteConditionsBlock()` - parses route block with expression conditions
+  - `ParseExpression()` - captures expression tokens until terminator
+  - `ParseRouteDestination()` - parses `name -> output(...)` syntax
+  - `ParseOutputDestination()` - parses output with config
+  - `CheckAhead()` - lookahead helper for detecting patterns
+- Route conditions and destinations are merged by name during parsing
+- Added unit tests to verify all routing scenarios
+
+### Files Modified
+- src/Gluey.Parser/Parser.cs (extended - ~800 lines total)
+- tests/Gluey.Parser.Tests/RouteParsingTests.cs (new - 8 tests)
+- tests/Gluey.Parser.Tests/Gluey.Parser.Tests.csproj (added Gluey.Parser reference)
+
+### Learnings
+- Route blocks define conditions but not destinations; destinations are defined separately with `->` syntax
+- Expression parsing requires careful termination detection: stop on `}`, `,`, or `identifier:` patterns
+- The `identifier:` lookahead pattern handles multi-line route conditions without explicit separators
+- Function-call syntax in config values (e.g., `route_to("name")`) needs special handling in ParseConfigValue
+- Test project namespace conflicts with Parser class name - use alias `GlueyParser.Parser`
 
