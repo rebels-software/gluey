@@ -587,7 +587,7 @@
         "In engine/docs/plugins.md"
       ],
       "priority": 36,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
