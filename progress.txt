@@ -794,3 +794,24 @@
 - DbParameter.Value must use DBNull.Value for null, not C# null
 - Connection-per-write pattern is simpler than connection pooling for initial implementation
 
+## [US-029] - Create Demo 4 - Industrial Pipeline - 2026-01-29
+
+### Implementation
+- Created samples/04-industrial-pipeline.gflow demonstrating MQTT input, routing, and SQL output
+- Pipeline: MQTT -> json.parse -> transform -> route -> MQTT/SQL outputs
+- Subscribes to sensors/+/telemetry MQTT topic
+- Transforms incoming data with computed alert_level based on temperature > 80 OR pressure > 140
+- Routes critical alerts to MQTT topic alerts/critical
+- Routes normal data to PostgreSQL sensor_readings table
+- Includes comprehensive test instructions for local testing with Docker
+
+### Files Modified
+- samples/04-industrial-pipeline.gflow (new)
+
+### Learnings
+- Route syntax: `route_name -> output(...)` must follow the `| route { ... }` block
+- Route conditions use expression syntax (alert_level == "critical")
+- Catch-all route uses `*` as condition (e.g., `normal_data: *`)
+- SQL output requires connection string and column mappings
+- Transform can compute fields used by downstream route conditions
+

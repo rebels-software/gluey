@@ -1,0 +1,63 @@
+// Demo 4: Industrial Pipeline
+// A workflow that routes industrial IoT sensor data based on alert levels.
+// Critical alerts are published to MQTT for real-time monitoring, while normal
+// readings are stored in SQL for historical analysis.
+//
+// MQTT Topics:
+//   Input: sensors/+/telemetry (subscribes to all sensor telemetry)
+//   Output: alerts/critical (publishes critical alerts)
+//
+// To test (requires MQTT broker and PostgreSQL):
+// 1. Start local MQTT broker: docker run -d -p 1883:1883 eclipse-mosquitto
+// 2. Start PostgreSQL: docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres
+// 3. Create table:
+//    psql -h localhost -U postgres -c "CREATE TABLE sensor_readings (
+//      id SERIAL PRIMARY KEY,
+//      device_id VARCHAR(50),
+//      temperature DECIMAL,
+//      pressure DECIMAL,
+//      alert_level VARCHAR(20),
+//      recorded_at TIMESTAMPTZ
+//    );"
+// 4. Run: dotnet run --project src/Gluey.Cli -- run samples/04-industrial-pipeline.gflow
+// 5. Publish test message (critical alert):
+//    mosquitto_pub -t "sensors/pump-001/telemetry" -m '{"device_id": "pump-001", "temperature": 95.5, "pressure": 150.2}'
+// 6. Publish test message (normal reading):
+//    mosquitto_pub -t "sensors/pump-002/telemetry" -m '{"device_id": "pump-002", "temperature": 45.0, "pressure": 100.0}'
+
+flow industrial-pipeline v1.0 {
+  from mqtt("mqtt://localhost:1883") {
+    topics: ["sensors/+/telemetry"]
+    qos: 1
+    client_id: "gluey-industrial-001"
+  }
+
+  | json.parse(payload)
+  | transform {
+      device_id: device_id
+      temperature: temperature
+      pressure: pressure
+      alert_level: temperature > 80 || pressure > 140 ? "critical" : "normal"
+      recorded_at: now()
+    }
+  | route {
+      critical_alert: alert_level == "critical"
+      normal_data: *
+    }
+
+  critical_alert -> mqtt("mqtt://localhost:1883") {
+    topic: "alerts/critical"
+    qos: 1
+  }
+
+  normal_data -> sql("Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres") {
+    table: "sensor_readings"
+    columns: {
+      device_id: "device_id",
+      temperature: "temperature",
+      pressure: "pressure",
+      alert_level: "alert_level",
+      recorded_at: "recorded_at"
+    }
+  }
+}
