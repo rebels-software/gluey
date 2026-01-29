@@ -654,3 +654,33 @@
 - Big-endian (int16_be) vs little-endian (uint16_le) demonstrates real-world protocol variety
 - Transform expressions support arithmetic (temperature_raw / 100) and ternary (status check)
 
+## [US-024] - Implement MqttSubscriberInput plugin - 2026-01-29
+
+### Implementation
+- Added MQTTnet v5.0.1.1416 package to Gluey.Plugins.csproj
+- Fixed MqttSubscriberInput.cs for MQTTnet v5 API changes:
+  - Changed from `PayloadSegment` (ArraySegment<byte>) to `Payload` (ReadOnlySequence<byte>)
+  - Added System.Buffers using for ReadOnlySequence handling
+  - Properly convert ReadOnlySequence<byte> to byte array for JSON parsing and base64 encoding
+- Registered "mqtt" input plugin in PluginRegistry
+- Plugin features:
+  - Connects to MQTT broker via URL (mqtt:// or mqtts://)
+  - Supports TLS via mqtts:// scheme or tls: true config
+  - Subscribes to multiple topics with wildcard support (+ and #)
+  - Supports QoS 0, 1, and 2
+  - Emits Message with payload (JSON or empty) and metadata (source, topic, qos, retain, raw_bytes if binary)
+  - Supports username/password authentication
+  - Auto-generates client_id if not provided
+
+### Files Modified
+- src/Gluey.Plugins/Gluey.Plugins.csproj (added MQTTnet package)
+- src/Gluey.Plugins/Inputs/MqttSubscriberInput.cs (fixed MQTTnet v5 API)
+- src/Gluey.Runtime/PluginRegistry.cs (uncommented mqtt registration)
+
+### Learnings
+- MQTTnet v5 uses ReadOnlySequence<byte> for Payload instead of ArraySegment<byte> (PayloadSegment)
+- ReadOnlySequence<byte> requires System.Buffers using and .ToArray() method for conversion
+- Check IsSingleSegment for efficient single-segment handling: payload.First.ToArray()
+- MQTTnet v5 separates MqttClientFactory from MqttServerFactory
+- MqttClientSubscribeOptionsBuilder allows adding multiple topic filters with different QoS levels
+

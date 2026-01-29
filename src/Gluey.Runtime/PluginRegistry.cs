@@ -43,7 +43,7 @@ public sealed class PluginRegistry
     {
         // Input plugins
         RegisterInput("http", () => new HttpWebhookInput());
-        // RegisterInput("mqtt", () => new MqttSubscriberInput());
+        RegisterInput("mqtt", () => new MqttSubscriberInput());
 
         // Transform plugins
         RegisterTransform("json.parse", () => new JsonParseTransform());
