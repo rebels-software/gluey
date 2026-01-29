@@ -608,3 +608,25 @@
 - Convert.FromBase64String throws FormatException for invalid input - catch and drop message
 - Reusing BinaryDecodeTransform via composition avoids code duplication for binary format parsing
 
+## [US-022] - Implement HexDecodeTransform plugin - 2026-01-29
+
+### Implementation
+- Created HexDecodeTransform.cs in Gluey.Plugins/Transforms/ implementing ITransformPlugin
+- Reads hex string from specified field or common field names (hex_payload, hex, hex_data, payload, data)
+- Decodes hex string to raw bytes using custom HexStringToBytes() method
+- Supports optional 0x prefix and spaces between bytes (e.g., "41 42 43 44")
+- If format array is specified, passes decoded bytes to BinaryDecodeTransform for structured extraction
+- Without format, stores decoded bytes in metadata as "raw_bytes" (base64-encoded) for downstream transforms
+- Includes IsLikelyHex helper to validate hex strings (even length, valid chars 0-9, a-f, A-F)
+- Registered decode.hex in PluginRegistry
+
+### Files Modified
+- src/Gluey.Plugins/Transforms/HexDecodeTransform.cs (new - ~260 lines)
+- src/Gluey.Runtime/PluginRegistry.cs (uncommented decode.hex registration)
+
+### Learnings
+- Hex strings must have even length (two chars per byte)
+- Custom HexStringToBytes more efficient than Convert.FromHexString (available in .NET 5+)
+- Pattern identical to Base64DecodeTransform - composes with BinaryDecodeTransform
+- Support for 0x prefix and space-separated bytes increases compatibility with various hex formats
+
