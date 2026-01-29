@@ -317,6 +317,24 @@
       "notes": ""
     },
     {
+      "id": "US-037",
+      "title": "Validate plugins in .gflow files",
+      "description": "As a user, I want the validate command to check that all plugin names used in my .gflow file are valid and available, so I catch typos and unknown plugin errors before running.",
+      "acceptanceCriteria": [
+        "gluey validate checks all input plugin types (http, mqtt, etc.) against known plugins",
+        "gluey validate checks all transform plugin types (json.parse, filter, transform, decode.binary, decode.base64, decode.hex, route) against known plugins",
+        "gluey validate checks all output plugin types (console, mqtt, sql, http) against known plugins",
+        "Reports clear error with line/column for unknown plugin types",
+        "Validates plugin config syntax matches expected schema where applicable",
+        "Provides suggestion for similar plugin name on typo (e.g., 'json.pars' -> 'Did you mean json.parse?')",
+        "All existing tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": true,
+      "notes": ""
+    },
+    {
       "id": "US-020",
       "title": "Implement BinaryDecodeTransform plugin",
       "description": "As a user, I want to decode binary payloads so I can process compact IoT protocols.",
@@ -329,7 +347,7 @@
         "In Gluey.Plugins/Transforms/BinaryDecodeTransform.cs",
         "Typecheck passes"
       ],
-      "priority": 20,
+      "priority": 21,
       "passes": false,
       "notes": ""
     },
@@ -344,7 +362,7 @@
         "In Gluey.Plugins/Transforms/Base64DecodeTransform.cs",
         "Typecheck passes"
       ],
-      "priority": 21,
+      "priority": 22,
       "passes": false,
       "notes": ""
     },
@@ -359,7 +377,7 @@
         "In Gluey.Plugins/Transforms/HexDecodeTransform.cs",
         "Typecheck passes"
       ],
-      "priority": 22,
+      "priority": 23,
       "passes": false,
       "notes": ""
     },
@@ -375,7 +393,7 @@
         "File passes gluey validate",
         "Typecheck passes"
       ],
-      "priority": 23,
+      "priority": 24,
       "passes": false,
       "notes": ""
     },
@@ -393,7 +411,7 @@
         "In Gluey.Plugins/Inputs/MqttSubscriberInput.cs",
         "Typecheck passes"
       ],
-      "priority": 24,
+      "priority": 25,
       "passes": false,
       "notes": ""
     },
@@ -410,7 +428,7 @@
         "In Gluey.Plugins/Outputs/MqttPublisherOutput.cs",
         "Typecheck passes"
       ],
-      "priority": 25,
+      "priority": 26,
       "passes": false,
       "notes": ""
     },
@@ -427,7 +445,7 @@
         "In Gluey.Plugins/Transforms/RouteTransform.cs",
         "Typecheck passes"
       ],
-      "priority": 26,
+      "priority": 27,
       "passes": false,
       "notes": ""
     },
@@ -441,7 +459,7 @@
         "Support multiple output pipelines (one per route)",
         "Typecheck passes"
       ],
-      "priority": 27,
+      "priority": 28,
       "passes": false,
       "notes": ""
     },
@@ -459,7 +477,7 @@
         "In Gluey.Plugins/Outputs/SqlOutput.cs",
         "Typecheck passes"
       ],
-      "priority": 28,
+      "priority": 29,
       "passes": false,
       "notes": ""
     },
@@ -474,7 +492,7 @@
         "File passes gluey validate",
         "Typecheck passes"
       ],
-      "priority": 29,
+      "priority": 30,
       "passes": false,
       "notes": ""
     },
@@ -490,7 +508,7 @@
         "File passes gluey validate",
         "Typecheck passes"
       ],
-      "priority": 30,
+      "priority": 31,
       "passes": false,
       "notes": ""
     },
@@ -505,7 +523,7 @@
         "In Gluey.Plugins/Outputs/HttpOutput.cs",
         "Typecheck passes"
       ],
-      "priority": 31,
+      "priority": 32,
       "passes": false,
       "notes": ""
     },
@@ -522,7 +540,7 @@
         "In engine/docker/Dockerfile",
         "Typecheck passes"
       ],
-      "priority": 32,
+      "priority": 33,
       "passes": false,
       "notes": ""
     },
@@ -536,7 +554,7 @@
         "Running and testing with curl",
         "In engine/docs/getting-started.md"
       ],
-      "priority": 33,
+      "priority": 34,
       "passes": false,
       "notes": ""
     },
@@ -554,7 +572,7 @@
         "Expression syntax (operators, functions)",
         "In engine/docs/dsl-reference.md"
       ],
-      "priority": 34,
+      "priority": 35,
       "passes": false,
       "notes": ""
     },
@@ -568,7 +586,7 @@
         "Example usage for each plugin",
         "In engine/docs/plugins.md"
       ],
-      "priority": 35,
+      "priority": 36,
       "passes": false,
       "notes": ""
     },
@@ -584,8 +602,49 @@
         "License information",
         "In engine/README.md"
       ],
-      "priority": 36,
+      "priority": 37,
       "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-038",
+      "title": "Validate entire .gflow file structure",
+      "description": "As a user, I want the validate command to fully validate my .gflow DSL file structure, so I catch structural errors before running.",
+      "acceptanceCriteria": [
+        "Validates flow block has required 'from' input section",
+        "Validates flow name follows naming convention (alphanumeric, hyphens)",
+        "Validates version format (v<major>.<minor>)",
+        "Validates input block has valid type and required config (url, port, etc.)",
+        "Validates pipeline steps have valid syntax (| type() or | type {})",
+        "Validates route blocks have matching route destinations (name -> output)",
+        "Validates output plugin appears at end of pipeline or in route destinations",
+        "Reports clear error with line/column for structural issues",
+        "All existing tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 38,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "Add comprehensive .gflow DSL validation unit tests",
+      "description": "As a developer, I need unit tests for .gflow language validation so DSL compliance is verified and regressions are caught.",
+      "acceptanceCriteria": [
+        "Test valid .gflow files pass validation (all demos)",
+        "Test invalid plugin names are rejected with suggestions",
+        "Test invalid input types are rejected",
+        "Test invalid transform types are rejected",
+        "Test invalid output types are rejected",
+        "Test missing 'from' block is rejected",
+        "Test missing flow name/version is rejected",
+        "Test route blocks without matching destinations are rejected",
+        "Test typo suggestions work correctly (json.pars -> json.parse)",
+        "All tests pass: dotnet test Gluey.Parser.Tests",
+        "Typecheck passes"
+      ],
+      "priority": 39,
+      "passes": true,
       "notes": ""
     }
   ]

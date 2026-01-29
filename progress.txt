@@ -492,3 +492,64 @@
 - Arithmetic expressions with division use proper operator precedence
 - now() function in transform provides ISO 8601 timestamps
 
+## [US-037] - Validate plugins in .gflow files - 2026-01-29
+
+### Implementation
+- Created FlowValidator.cs in Gluey.Parser for semantic validation
+- Validates input plugin types against known list (http, mqtt)
+- Validates transform plugin types against known list (json.parse, filter, transform, decode.*, route)
+- Validates output plugin types against known list (console, http, mqtt, sql)
+- Implements Levenshtein distance for "Did you mean?" suggestions on typos
+- Case-insensitive plugin matching (HTTP == http)
+- Clear error messages with available plugin lists
+
+### Files Modified
+- src/Gluey.Parser/FlowValidator.cs (new - ~340 lines)
+- src/Gluey.Cli/Program.cs (integrated validator into validate command)
+
+### Learnings
+- Levenshtein distance with max threshold of 3 edits provides good typo suggestions
+- Case-insensitive HashSet with StringComparer.OrdinalIgnoreCase simplifies matching
+- Validation after parsing catches semantic errors that syntax doesn't
+
+## [US-038] - Validate entire .gflow file structure - 2026-01-29
+
+### Implementation
+- Enhanced FlowValidator with full DSL structure validation:
+  - Validates flow name follows naming conventions
+  - Validates version format (X.Y)
+  - Validates pipeline has required steps
+  - Validates output appears at end or in route destinations
+  - Validates route conditions have matching destinations
+  - Validates route destinations have matching conditions
+- Added warnings for unusual patterns (output not at end without routing)
+
+### Files Modified
+- src/Gluey.Parser/FlowValidator.cs (extended with structure validation)
+
+### Learnings
+- Route validation requires cross-referencing conditions block with destinations
+- Flow structure validation catches common mistakes like missing outputs
+- Warnings vs errors distinction helps users understand severity
+
+## [US-039] - Add .gflow DSL validation unit tests - 2026-01-29
+
+### Implementation
+- Created comprehensive test suite FlowValidationTests.cs (33 tests):
+  - Valid flow tests (HelloWorld, SmartSensor demos)
+  - Invalid input plugin tests with suggestions
+  - Invalid transform plugin tests with suggestions
+  - Invalid output plugin tests with suggestions
+  - Flow structure validation tests (no output, no pipeline)
+  - Typo suggestion tests using Theory for multiple cases
+  - Case insensitivity tests
+  - All known plugins validation
+
+### Files Modified
+- tests/Gluey.Parser.Tests/FlowValidationTests.cs (new - ~400 lines)
+
+### Learnings
+- xUnit [Theory] with [InlineData] is perfect for testing multiple typo → suggestion pairs
+- Parser may reject invalid plugin names before validation if they use special syntax (filter)
+- Test that validator handles both parser-level and validator-level errors
+

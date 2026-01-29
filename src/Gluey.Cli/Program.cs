@@ -72,6 +72,26 @@ static async Task<int> ValidateFile(FileInfo file)
         var parser = new Gluey.Parser.Parser(tokens);
         var flow = parser.Parse();
 
+        // Validate semantic correctness (plugins, structure)
+        var validator = FlowValidator.CreateDefault();
+        var validationResult = validator.Validate(flow);
+
+        // Report warnings
+        foreach (var warning in validationResult.Warnings)
+        {
+            Console.Error.WriteLine($"Warning: {warning}");
+        }
+
+        // Report errors
+        if (!validationResult.IsValid)
+        {
+            foreach (var error in validationResult.Errors)
+            {
+                Console.Error.WriteLine($"Error: {error}");
+            }
+            return 1;
+        }
+
         Console.WriteLine($"✓ Valid: {file.Name}");
         return 0;
     }
