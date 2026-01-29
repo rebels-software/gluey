@@ -684,3 +684,28 @@
 - MQTTnet v5 separates MqttClientFactory from MqttServerFactory
 - MqttClientSubscribeOptionsBuilder allows adding multiple topic filters with different QoS levels
 
+## [US-025] - Implement MqttPublisherOutput plugin - 2026-01-29
+
+### Implementation
+- Created MqttPublisherOutput.cs in Gluey.Plugins/Outputs/ implementing IOutputPlugin
+- Connects to MQTT broker via URL (mqtt:// or mqtts://)
+- Supports TLS via mqtts:// scheme or tls: true config
+- Publishes messages to configured topic with QoS 0, 1, or 2
+- Supports topic interpolation with {{field}} syntax (e.g., "devices/{{device_id}}/data")
+- Nested field access supported in interpolation (e.g., {{device.location.id}})
+- Serializes message payload as JSON for publishing
+- Supports retain flag configuration
+- Supports username/password authentication
+- Auto-generates client_id if not provided (prefix: gluey-pub-)
+- Registered "mqtt" output plugin in PluginRegistry
+
+### Files Modified
+- src/Gluey.Plugins/Outputs/MqttPublisherOutput.cs (new - ~230 lines)
+- src/Gluey.Runtime/PluginRegistry.cs (uncommented mqtt output registration)
+
+### Learnings
+- Output plugins are simpler than input - no async streaming or channels needed
+- Regex.Replace with MatchEvaluator enables clean topic interpolation
+- MqttApplicationMessageBuilder used for constructing publish messages
+- Same TLS and authentication patterns work for both subscriber and publisher
+
