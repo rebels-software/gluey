@@ -987,3 +987,26 @@
 - Link to detailed docs rather than duplicating content
 - License info at bottom with link to full LICENSE file
 
+## Versioning Setup - 2026-01-29
+
+### Implementation
+- Added version properties to Gluey.Cli.csproj:
+  - Version: 0.1.0
+  - AssemblyVersion: 0.1.0.0
+  - FileVersion: 0.1.0.0
+- `gluey --version` now returns "0.1.0" (with git hash appended by .NET)
+
+### How to Bump Version
+1. **Manual**: Edit `src/Gluey.Cli/Gluey.Cli.csproj` and update Version property
+2. **Override at build**: `dotnet build -p:Version=0.2.0`
+3. **Future**: Use git tags with `-p:Version=$(git describe --tags)` in CI
+
+### Files Modified
+- src/Gluey.Cli/Gluey.Cli.csproj (added Version, AssemblyVersion, FileVersion)
+
+### Learnings
+- .NET automatically appends git hash to version (e.g., 0.1.0+723600ba...)
+- Version property in csproj is the canonical source for CLI versioning
+- Per-project versioning chosen over Directory.Build.props (only CLI needs version)
+- System.CommandLine automatically handles --version from assembly metadata
+
