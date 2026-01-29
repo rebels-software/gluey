@@ -805,8 +805,15 @@
 - Routes normal data to PostgreSQL sensor_readings table
 - Includes comprehensive test instructions for local testing with Docker
 
+### Bug Fix - Route destination URL handling
+- Fixed bug where MQTT output plugin in route destinations didn't receive the URL
+- Parser stores parenthesized argument as "target" in config (e.g., `mqtt("url")`)
+- Added `MergeOutputConfig()` method in GlueyHostedService to copy "target" to "url"
+- This mirrors `MergeInputConfig()` which does the same for input plugins
+
 ### Files Modified
 - samples/04-industrial-pipeline.gflow (new)
+- src/Gluey.Runtime/GlueyHostedService.cs (added MergeOutputConfig, updated CreateRoutePipelineAsync)
 
 ### Learnings
 - Route syntax: `route_name -> output(...)` must follow the `| route { ... }` block
@@ -814,4 +821,5 @@
 - Catch-all route uses `*` as condition (e.g., `normal_data: *`)
 - SQL output requires connection string and column mappings
 - Transform can compute fields used by downstream route conditions
+- **BUG FIX**: Parser stores `mqtt("url")` argument as "target", but plugins expect "url" - need config merging
 

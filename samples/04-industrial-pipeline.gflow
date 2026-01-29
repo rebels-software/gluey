@@ -8,8 +8,8 @@
 //   Output: alerts/critical (publishes critical alerts)
 //
 // To test (requires MQTT broker and PostgreSQL):
-// 1. Start local MQTT broker: docker run -d -p 1883:1883 eclipse-mosquitto
-// 2. Start PostgreSQL: docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres
+// 1. Start local MQTT broker: docker run -d -p 1883:1883 eclipse-mosquitto mosquitto -c /mosquitto-no-auth.conf
+// 2. Start PostgreSQL: docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres
 // 3. Create table:
 //    psql -h localhost -U postgres -c "CREATE TABLE sensor_readings (
 //      id SERIAL PRIMARY KEY,

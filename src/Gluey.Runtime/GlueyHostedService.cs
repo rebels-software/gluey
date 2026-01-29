@@ -273,7 +273,8 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
             {
                 // This is the output plugin for this route
                 output = _pluginRegistry.CreateOutput(step.Type);
-                await output.InitializeAsync(step.Config, cancellationToken);
+                var outputConfig = MergeOutputConfig(step);
+                await output.InitializeAsync(outputConfig, cancellationToken);
             }
             else if (_pluginRegistry.IsTransformPlugin(step.Type))
             {
@@ -304,6 +305,27 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
         if (!string.IsNullOrEmpty(input.Url) && !config.ContainsKey("url"))
         {
             config["url"] = System.Text.Json.JsonSerializer.SerializeToElement(input.Url);
+        }
+
+        return config;
+    }
+
+    /// <summary>
+    /// Merges the output "target" into "url" config if present (for route destinations like mqtt("url")).
+    /// The parser stores the parenthesized argument as "target", but plugins expect "url".
+    /// </summary>
+    private static IReadOnlyDictionary<string, System.Text.Json.JsonElement> MergeOutputConfig(PipelineStep step)
+    {
+        var config = new Dictionary<string, System.Text.Json.JsonElement>(step.Config);
+
+        // If "target" is present but "url" is not, copy target to url
+        // This handles route destinations like: mqtt("mqtt://localhost:1883") { topic: "..." }
+        if (config.TryGetValue("target", out var targetElement) && !config.ContainsKey("url"))
+        {
+            if (targetElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                config["url"] = targetElement;
+            }
         }
 
         return config;
