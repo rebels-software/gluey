@@ -553,3 +553,36 @@
 - Parser may reject invalid plugin names before validation if they use special syntax (filter)
 - Test that validator handles both parser-level and validator-level errors
 
+## [US-020] - Implement BinaryDecodeTransform plugin - 2026-01-29
+
+### Implementation
+- Created BinaryDecodeTransform.cs in Gluey.Plugins/Transforms/ implementing ITransformPlugin
+- Reads raw bytes from:
+  - raw_bytes metadata (base64 from HTTP binary input)
+  - Specified field in payload (base64)
+  - "data" field in payload
+- Extracts fields using bytes(offset, length, type) format
+- Supports config as array of objects or strings
+- Object format: { name: "device_id", offset: 0, length: 4, type: "string" }
+- String format: "device_id: bytes(0, 4, \"string\")"
+- Supported types:
+  - ascii/string: ASCII/UTF-8 strings (null-terminated)
+  - uint8: unsigned 8-bit integer
+  - int16_be, int16_le: signed 16-bit (big/little endian)
+  - uint16_be, uint16_le: unsigned 16-bit (big/little endian)
+  - int32_be, int32_le: signed 32-bit (big/little endian)
+  - uint32_be, uint32_le: unsigned 32-bit (big/little endian)
+  - float32_be, float32_le: IEEE 754 float (big/little endian)
+- Creates JsonDocument with extracted fields as result
+- Registered decode.binary in PluginRegistry
+
+### Files Modified
+- src/Gluey.Plugins/Transforms/BinaryDecodeTransform.cs (new - ~330 lines)
+- src/Gluey.Runtime/PluginRegistry.cs (uncommented decode.binary registration)
+
+### Learnings
+- System.Buffers.Binary.BinaryPrimitives provides endian-aware integer reading
+- BitConverter.Int32BitsToSingle converts raw int bits to float (for endian-swapped floats)
+- JsonNode/JsonObject/JsonValue from System.Text.Json.Nodes useful for building dynamic JSON
+- Span<byte> pattern efficient for slicing binary data without allocations
+
