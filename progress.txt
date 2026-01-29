@@ -630,3 +630,27 @@
 - Pattern identical to Base64DecodeTransform - composes with BinaryDecodeTransform
 - Support for 0x prefix and space-separated bytes increases compatibility with various hex formats
 
+## [US-023] - Create Demo 3 - Binary Sensor - 2026-01-29
+
+### Implementation
+- Created samples/03-binary-sensor.gflow demonstrating binary protocol decoding
+- Pipeline: HTTP -> decode.binary -> transform -> console
+- Binary format (12 bytes):
+  - device_id: 4 bytes ASCII string
+  - temperature_raw: 2 bytes int16_be (°C * 100)
+  - humidity_raw: 2 bytes uint16_le (% * 100)
+  - battery: 1 byte uint8 (0-100%)
+  - status_flags: 1 byte uint8 (bit flags)
+  - sequence_num: 2 bytes uint16_be
+- Transform converts raw values to meaningful data (division by 100, status check)
+- Includes test instructions with base64-encoded sample data and raw binary curl
+
+### Files Modified
+- samples/03-binary-sensor.gflow (new)
+
+### Learnings
+- decode.binary plugin reads from raw_bytes metadata (HTTP binary) or data field (JSON with base64)
+- Object format in format array: { name, offset, length, type } is cleaner than string format
+- Big-endian (int16_be) vs little-endian (uint16_le) demonstrates real-world protocol variety
+- Transform expressions support arithmetic (temperature_raw / 100) and ternary (status check)
+

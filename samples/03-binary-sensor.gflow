@@ -1,0 +1,60 @@
+// Demo 3: Binary Sensor
+// A workflow that decodes binary protocol payloads with various endianness types.
+// Demonstrates int16_be (big-endian), uint16_le (little-endian), and uint8 fields.
+//
+// Binary format (12 bytes total):
+//   Bytes 0-3:   device_id (ASCII string, e.g., "SN01")
+//   Bytes 4-5:   temperature (int16_be, °C * 100, e.g., 2350 = 23.50°C)
+//   Bytes 6-7:   humidity (uint16_le, % * 100, e.g., 6520 = 65.20%)
+//   Bytes 8:     battery_level (uint8, 0-100%)
+//   Bytes 9:     status_flags (uint8, bit flags)
+//   Bytes 10-11: sequence_num (uint16_be, message sequence)
+//
+// To test:
+// 1. Run: dotnet run --project src/Gluey.Cli -- run samples/03-binary-sensor.gflow
+// 2. Send binary data (base64 encoded in JSON):
+//    curl -X POST http://localhost:8080/webhook \
+//         -H "Content-Type: application/json" \
+//         -d '{"data": "U04wMQkyGAhXADAB"}'
+//
+//    The base64 "U04wMQkyGAhXADAB" decodes to:
+//    - "SN01" (device_id)
+//    - 0x0932 = 2354 (temperature_raw, 23.54°C)
+//    - 0x1808 = 6152 little-endian (humidity_raw, 61.52%)
+//    - 0x57 = 87 (battery, 87%)
+//    - 0x00 = 0 (status flags)
+//    - 0x3001 = 12289 (sequence_num)
+//
+// Or send raw binary (application/octet-stream):
+//    printf 'SN01\x09\x32\x08\x18\x57\x00\x30\x01' | curl -X POST http://localhost:8080/webhook \
+//         -H "Content-Type: application/octet-stream" \
+//         --data-binary @-
+
+flow binary-sensor v1.0 {
+  from http("/webhook") {
+    port: 8080
+  }
+
+  | decode.binary {
+      format: [
+        { name: "device_id", offset: 0, length: 4, type: "string" },
+        { name: "temperature_raw", offset: 4, length: 2, type: "int16_be" },
+        { name: "humidity_raw", offset: 6, length: 2, type: "uint16_le" },
+        { name: "battery", offset: 8, length: 1, type: "uint8" },
+        { name: "status_flags", offset: 9, length: 1, type: "uint8" },
+        { name: "sequence_num", offset: 10, length: 2, type: "uint16_be" }
+      ]
+    }
+
+  | transform {
+      device_id: device_id
+      temperature_celsius: temperature_raw / 100
+      humidity_percent: humidity_raw / 100
+      battery_percent: battery
+      is_online: status_flags == 0 ? true : false
+      sequence: sequence_num
+      processed_at: now()
+    }
+
+  | console()
+}
