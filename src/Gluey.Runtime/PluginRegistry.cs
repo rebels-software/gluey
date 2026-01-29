@@ -14,6 +14,7 @@
 
 using Gluey.Core.Abstractions;
 using Gluey.Plugins.Inputs;
+using Gluey.Plugins.Outputs;
 
 namespace Gluey.Runtime;
 
@@ -53,7 +54,7 @@ public sealed class PluginRegistry
         // RegisterTransform("route", () => new RouteTransform());
 
         // Output plugins
-        // RegisterOutput("console", () => new ConsoleOutput());
+        RegisterOutput("console", () => new ConsoleOutput());
         // RegisterOutput("http", () => new HttpOutput());
         // RegisterOutput("mqtt", () => new MqttPublisherOutput());
         // RegisterOutput("sql", () => new SqlOutput());

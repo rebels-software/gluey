@@ -350,3 +350,22 @@
 - ConfigureKestrel/UseUrls extensions not available on ConfigureWebHostBuilder in minimal hosting
 - RunAsync blocks until cancellation, so must run in background Task to avoid blocking InitializeAsync
 
+## [US-014] - Implement ConsoleOutput plugin - 2026-01-29
+
+### Implementation
+- Created ConsoleOutput.cs in Gluey.Plugins/Outputs/ implementing IOutputPlugin
+- Prints message payload as formatted (indented) JSON to stdout
+- Includes ISO 8601 timestamp prefix: [2026-01-29T10:30:45.123+00:00] {...}
+- Uses JsonSerializerOptions with WriteIndented = true for readability
+- Registered ConsoleOutput in PluginRegistry
+
+### Files Modified
+- src/Gluey.Plugins/Outputs/ConsoleOutput.cs (new - 65 lines)
+- src/Gluey.Runtime/PluginRegistry.cs (registered console output)
+
+### Learnings
+- Output plugins are simpler than input plugins - no async streaming or channels needed
+- JsonSerializer.Serialize with JsonDocument works directly for formatting
+- Console output is synchronous but wrapped in Task.CompletedTask for interface compliance
+- ISO 8601 format "yyyy-MM-ddTHH:mm:ss.fffzzz" includes milliseconds and timezone offset
+
