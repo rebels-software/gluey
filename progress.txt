@@ -4,9 +4,9 @@
 
 ## Summary
 - Total Stories: 36
-- Completed: 6
+- Completed: 7
 - In Progress: 0
-- Remaining: 30
+- Remaining: 29
 
 ## Codebase Patterns
 - Solution uses traditional `.sln` format (not `.slnx`)
@@ -168,4 +168,28 @@
 - The `identifier:` lookahead pattern handles multi-line route conditions without explicit separators
 - Function-call syntax in config values (e.g., `route_to("name")`) needs special handling in ParseConfigValue
 - Test project namespace conflicts with Parser class name - use alias `GlueyParser.Parser`
+
+## [US-007] - Write parser unit tests - 2026-01-29
+
+### Implementation
+- Created comprehensive test suite for DSL parser (55 tests total):
+  - FlowParsingTests (6 tests): flow name, hyphenated names, version extraction, comments
+  - InputParsingTests (12 tests): HTTP/MQTT/Kafka inputs, URLs, config blocks, arrays, booleans, floats, hex, nested objects
+  - PipelineStepParsingTests (15 tests): transforms with args/blocks, dotted names, filter conditions, keyword types
+  - ErrorParsingTests (16 tests): missing keywords/braces, invalid tokens, line/column info
+  - RouteParsingTests (8 tests): already created in US-006
+- Removed placeholder UnitTest1.cs
+
+### Files Modified
+- tests/Gluey.Parser.Tests/FlowParsingTests.cs (new)
+- tests/Gluey.Parser.Tests/InputParsingTests.cs (new)
+- tests/Gluey.Parser.Tests/PipelineStepParsingTests.cs (new)
+- tests/Gluey.Parser.Tests/ErrorParsingTests.cs (new)
+- tests/Gluey.Parser.Tests/UnitTest1.cs (deleted)
+
+### Learnings
+- Test files were partially created during US-005/US-006 but not committed
+- Use `GlueyParser = Gluey.Parser` alias to avoid namespace conflict with Parser class
+- xUnit [Fact] attribute is sufficient for simple tests; no additional setup needed
+- ParseException exposes Line/Column properties for precise error location testing
 
