@@ -394,3 +394,25 @@
 - Error handling config can be string ("skip") or object ({ action, target })
 - JsonDocument.Parse(root.GetRawText()) clones to avoid ownership issues
 
+## [US-016] - Create Demo 1 - Hello World - 2026-01-29
+
+### Implementation
+- Created samples/01-hello-world.gflow: HTTP -> json.parse -> console pipeline
+- Fixed GlueyHostedService to correctly detect output plugins in pipeline
+- Added IsOutputPlugin, IsTransformPlugin, IsInputPlugin methods to PluginRegistry
+- The demo workflow:
+  - Listens on HTTP port 8080 at /webhook
+  - Parses incoming JSON payloads
+  - Outputs formatted JSON to console with timestamp prefix
+
+### Files Modified
+- samples/01-hello-world.gflow (new)
+- src/Gluey.Runtime/GlueyHostedService.cs (fixed pipeline step processing)
+- src/Gluey.Runtime/PluginRegistry.cs (added type check methods)
+
+### Learnings
+- Pipeline steps are parsed as a flat list - the runtime must distinguish transforms from outputs
+- The last pipeline step should be checked if it's an output plugin before processing transforms
+- PluginRegistry needs IsOutputPlugin/IsTransformPlugin methods to support this detection
+- The channel closed error message at shutdown is expected and harmless
+

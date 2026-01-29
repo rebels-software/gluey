@@ -165,31 +165,55 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
         var inputConfig = MergeInputConfig(flow.Input);
         await _inputPlugin.InitializeAsync(inputConfig, cancellationToken);
 
-        // Create and initialize transform plugins
-        _transformPlugins = new List<ITransformPlugin>();
-        foreach (var step in flow.PipelineSteps)
+        // Determine which pipeline steps are transforms vs output
+        // Check if the last pipeline step is an output plugin
+        var pipelineSteps = flow.PipelineSteps;
+        var transformStepCount = pipelineSteps.Count;
+        PipelineStep? outputStep = null;
+
+        if (pipelineSteps.Count > 0)
         {
+            var lastStep = pipelineSteps[^1];
+            if (_pluginRegistry.IsOutputPlugin(lastStep.Type))
+            {
+                // Last step is an output plugin - exclude it from transforms
+                outputStep = lastStep;
+                transformStepCount = pipelineSteps.Count - 1;
+            }
+        }
+
+        // Create and initialize transform plugins (excluding output step if present)
+        _transformPlugins = new List<ITransformPlugin>();
+        for (int i = 0; i < transformStepCount; i++)
+        {
+            var step = pipelineSteps[i];
             var transform = _pluginRegistry.CreateTransform(step.Type);
             await transform.InitializeAsync(step.Config, cancellationToken);
             _transformPlugins.Add(transform);
         }
 
-        // For now, use the last pipeline step as output if it's an output type
-        // or use console as default. This will be enhanced in US-011/US-012.
-        // For MVP, we'll detect output from routes or pipeline end.
-        _outputPlugin = DetermineOutputPlugin(flow);
-        if (_outputPlugin != null)
+        // Initialize output plugin
+        if (outputStep != null)
         {
-            var outputConfig = DetermineOutputConfig(flow);
-            await _outputPlugin.InitializeAsync(outputConfig, cancellationToken);
+            // Use the last pipeline step as output
+            _outputPlugin = _pluginRegistry.CreateOutput(outputStep.Type);
+            await _outputPlugin.InitializeAsync(outputStep.Config, cancellationToken);
         }
         else
         {
-            // Fallback: create a console output for demo purposes
-            // This will be replaced when ConsoleOutput is implemented
-            throw new InvalidOperationException(
-                "No output destination found in workflow. " +
-                "Define an output in a route destination or as the final pipeline step.");
+            // Check routes for output destinations
+            _outputPlugin = DetermineOutputPlugin(flow);
+            if (_outputPlugin != null)
+            {
+                var outputConfig = DetermineOutputConfig(flow);
+                await _outputPlugin.InitializeAsync(outputConfig, cancellationToken);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    "No output destination found in workflow. " +
+                    "Define an output in a route destination or as the final pipeline step.");
+            }
         }
     }
 

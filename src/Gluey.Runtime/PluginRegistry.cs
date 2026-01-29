@@ -165,4 +165,25 @@ public sealed class PluginRegistry
     /// Gets all registered output plugin types.
     /// </summary>
     public IEnumerable<string> GetOutputTypes() => _outputFactories.Keys;
+
+    /// <summary>
+    /// Checks if a plugin type is registered as an output plugin.
+    /// </summary>
+    /// <param name="type">The plugin type identifier.</param>
+    /// <returns>True if the type is registered as an output plugin, false otherwise.</returns>
+    public bool IsOutputPlugin(string type) => _outputFactories.ContainsKey(type);
+
+    /// <summary>
+    /// Checks if a plugin type is registered as a transform plugin.
+    /// </summary>
+    /// <param name="type">The plugin type identifier.</param>
+    /// <returns>True if the type is registered as a transform plugin, false otherwise.</returns>
+    public bool IsTransformPlugin(string type) => _transformFactories.ContainsKey(type);
+
+    /// <summary>
+    /// Checks if a plugin type is registered as an input plugin.
+    /// </summary>
+    /// <param name="type">The plugin type identifier.</param>
+    /// <returns>True if the type is registered as an input plugin, false otherwise.</returns>
+    public bool IsInputPlugin(string type) => _inputFactories.ContainsKey(type);
 }

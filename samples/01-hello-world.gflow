@@ -1,0 +1,17 @@
+// Demo 1: Hello World
+// A simple workflow that receives JSON via HTTP webhook and outputs to console.
+//
+// To test:
+// 1. Run: dotnet run --project src/Gluey.Cli -- run samples/01-hello-world.gflow
+// 2. Send: curl -X POST http://localhost:8080/webhook \
+//            -H "Content-Type: application/json" \
+//            -d '{"message": "Hello, Gluey!", "timestamp": "2026-01-29T10:00:00Z"}'
+
+flow hello-world v1.0 {
+  from http("/webhook") {
+    port: 8080
+  }
+
+  | json.parse(payload)
+  | console()
+}
