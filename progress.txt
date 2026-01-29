@@ -470,3 +470,25 @@
 - Keywords like "transform" can appear in hyphenated flow names (e.g., "test-transform")
 - Array/object literals in transform blocks should use standard config parsing for backward compat
 
+## [US-019] - Create Demo 2 - Smart Sensor - 2026-01-29
+
+### Implementation
+- Created samples/02-smart-sensor.gflow demonstrating filter and transform capabilities
+- Pipeline: HTTP -> json.parse -> filter -> transform -> console
+- Filter condition: temperature > 20
+- Transform mappings:
+  - device_id: direct field copy
+  - temperature_celsius: original value preserved
+  - temp_fahrenheit: arithmetic expression (temperature * 9 / 5 + 32)
+  - humidity: direct field copy
+  - alert_level: ternary expression (temperature > 30 ? "high" : "normal")
+  - processed_at: now() function call
+
+### Files Modified
+- samples/02-smart-sensor.gflow (new)
+
+### Learnings
+- Filter and transform plugins work correctly together in pipeline
+- Arithmetic expressions with division use proper operator precedence
+- now() function in transform provides ISO 8601 timestamps
+
