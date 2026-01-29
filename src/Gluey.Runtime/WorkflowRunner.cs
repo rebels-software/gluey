@@ -44,20 +44,41 @@ public sealed class WorkflowRunner
 
     /// <summary>
     /// Runs the workflow pipeline until cancellation is requested.
-    /// Full implementation in US-011.
+    /// Reads messages from input, applies transforms in sequence, and writes to output.
     /// </summary>
     /// <param name="cancellationToken">Token to signal shutdown.</param>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        // Stub: wait for cancellation
-        // Full implementation will read from input, apply transforms, write to output
         try
         {
-            await Task.Delay(Timeout.Infinite, cancellationToken);
+            // Read messages from input plugin via IAsyncEnumerable
+            await foreach (var message in _input.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                // Apply each transform in sequence
+                var currentMessage = message;
+
+                foreach (var transform in _transforms)
+                {
+                    // If transform returns null, message is dropped (filtered)
+                    currentMessage = await transform.ProcessAsync(currentMessage, cancellationToken).ConfigureAwait(false);
+
+                    if (currentMessage is null)
+                    {
+                        // Message was filtered - break out of transform loop
+                        break;
+                    }
+                }
+
+                // If message survived all transforms, send to output
+                if (currentMessage is not null)
+                {
+                    await _output.WriteAsync(currentMessage, cancellationToken).ConfigureAwait(false);
+                }
+            }
         }
         catch (OperationCanceledException)
         {
-            // Expected when cancellation is requested
+            // Expected when cancellation is requested - graceful shutdown
         }
     }
 }

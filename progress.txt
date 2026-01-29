@@ -266,3 +266,24 @@
 - MergeInputConfig helper merges URL into config dictionary for plugin initialization
 - Output detection logic scans routes and last pipeline step to find output plugin
 
+## [US-011] - Implement WorkflowRunner - 2026-01-29
+
+### Implementation
+- Completed WorkflowRunner.cs in Gluey.Runtime with full pipeline execution:
+  - RunAsync reads messages from input plugin via IAsyncEnumerable
+  - Applies each transform in sequence to the message
+  - If transform returns null, message is dropped (filtered) and breaks transform loop
+  - If message survives all transforms, sends to output plugin
+  - Handles cancellation token for graceful shutdown via OperationCanceledException
+  - Uses ConfigureAwait(false) for efficient async/await pattern
+
+### Files Modified
+- src/Gluey.Runtime/WorkflowRunner.cs (completed full implementation)
+
+### Learnings
+- IAsyncEnumerable enables streaming message processing without buffering
+- Transform returning null acts as a filter - breaks out of transform loop
+- ConfigureAwait(false) avoids unnecessary context switching in async methods
+- OperationCanceledException is expected during shutdown and should be caught gracefully
+- await foreach pattern cleanly handles async enumerable with cancellation token
+
