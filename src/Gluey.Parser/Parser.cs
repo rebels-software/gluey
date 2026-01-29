@@ -128,6 +128,11 @@ public sealed class Parser
                         DestinationSteps = routeDest.DestinationSteps
                     });
                 }
+                else
+                {
+                    // Identifier without '->' is not a valid route destination
+                    throw new ParseException($"Unexpected identifier '{Current().Value}'. Expected 'from', '|', or route destination 'name -> output(...)'", Current());
+                }
             }
             else
             {
