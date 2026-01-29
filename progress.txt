@@ -709,3 +709,27 @@
 - MqttApplicationMessageBuilder used for constructing publish messages
 - Same TLS and authentication patterns work for both subscriber and publisher
 
+## [US-026] - Implement RouteTransform plugin - 2026-01-29
+
+### Implementation
+- Created RouteTransform.cs in Gluey.Plugins/Transforms/ implementing ITransformPlugin
+- Evaluates multiple route conditions in order; first matching route wins
+- Supports * (asterisk) as catch-all/default route that always matches
+- Sets route destination in message metadata using "_route" key
+- WorkflowRunner can use "_route" metadata to select appropriate output pipeline
+- Reuses ExpressionEvaluator pattern from FilterTransform for condition evaluation
+- Config format: { "route_name": "condition_expression", ... }
+- Registered "route" transform plugin in PluginRegistry
+
+### Files Modified
+- src/Gluey.Plugins/Transforms/RouteTransform.cs (new - ~430 lines)
+- src/Gluey.Runtime/PluginRegistry.cs (uncommented route registration)
+
+### Learnings
+- RouteTransform is a transform that sets metadata rather than modifying payload
+- ExpressionEvaluator duplicated intentionally to keep plugins self-contained
+- Catch-all route (*) and empty conditions both match all messages
+- Route conditions use same expression syntax as filter (&&, ||, comparisons, nested field access)
+- Message.WithMetadata() provides clean immutable update pattern
+- RouteTransform.RouteMetadataKey constant ("_route") for consistent key access
+

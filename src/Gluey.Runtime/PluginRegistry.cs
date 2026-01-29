@@ -52,7 +52,7 @@ public sealed class PluginRegistry
         RegisterTransform("decode.binary", () => new BinaryDecodeTransform());
         RegisterTransform("decode.base64", () => new Base64DecodeTransform());
         RegisterTransform("decode.hex", () => new HexDecodeTransform());
-        // RegisterTransform("route", () => new RouteTransform());
+        RegisterTransform("route", () => new RouteTransform());
 
         // Output plugins
         RegisterOutput("console", () => new ConsoleOutput());
