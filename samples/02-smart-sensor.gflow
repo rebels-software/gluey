@@ -1,0 +1,30 @@
+// Demo 2: Smart Sensor
+// A workflow that filters and transforms temperature sensor data.
+// Only temperatures above 20°C pass through, with Fahrenheit conversion and alert levels.
+//
+// To test:
+// 1. Run: dotnet run --project src/Gluey.Cli -- run samples/02-smart-sensor.gflow
+// 2. Send (passes filter): curl -X POST http://localhost:8080/webhook \
+//            -H "Content-Type: application/json" \
+//            -d '{"device_id": "sensor-001", "temperature": 25.5, "humidity": 60}'
+// 3. Send (filtered out): curl -X POST http://localhost:8080/webhook \
+//            -H "Content-Type: application/json" \
+//            -d '{"device_id": "sensor-002", "temperature": 18.0, "humidity": 75}'
+
+flow smart-sensor v1.0 {
+  from http("/webhook") {
+    port: 8080
+  }
+
+  | json.parse(payload)
+  | filter(temperature > 20)
+  | transform {
+      device_id: device_id
+      temperature_celsius: temperature
+      temp_fahrenheit: temperature * 9 / 5 + 32
+      humidity: humidity
+      alert_level: temperature > 30 ? "high" : "normal"
+      processed_at: now()
+    }
+  | console()
+}
