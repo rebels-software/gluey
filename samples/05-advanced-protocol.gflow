@@ -1,0 +1,132 @@
+// Demo 5: Advanced Protocol
+// A workflow demonstrating binary header-based routing for industrial protocols.
+// Messages are decoded to extract a header with msg_type field, then routed to
+// different SQL tables based on message type (status vs telemetry).
+//
+// Binary Protocol Format:
+//   Header (6 bytes):
+//     Bytes 0-1:   magic (uint16_be, 0xABCD = 43981)
+//     Bytes 2:     version (uint8, protocol version)
+//     Bytes 3:     msg_type (uint8, 1=status, 2=telemetry)
+//     Bytes 4-5:   length (uint16_be, payload length after header)
+//
+//   Status Message (msg_type=1, 11 bytes after header):
+//     Bytes 6-9:   machine_id (ASCII string)
+//     Bytes 10:    status_code (uint8, 0=healthy, 1+=error code)
+//     Bytes 11-12: error_flags (uint16_be, bit flags)
+//     Bytes 13-16: uptime (uint32_be, seconds since boot)
+//
+//   Telemetry Message (msg_type=2, 12 bytes after header):
+//     Bytes 6-9:   machine_id (ASCII string)
+//     Bytes 10-11: temperature (int16_be, °C * 10)
+//     Bytes 12-15: pressure (uint32_be, Pascals)
+//     Bytes 16-17: rpm (uint16_be, rotations per minute)
+//
+// MQTT Topics:
+//   Input: machines/+/data (subscribes to all machine binary data)
+//
+// To test (requires MQTT broker and PostgreSQL):
+// 1. Start MQTT broker: docker run -d -p 1883:1883 eclipse-mosquitto mosquitto -c /mosquitto-no-auth.conf
+// 2. Start PostgreSQL: docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres
+// 3. Create tables:
+//    psql -h localhost -U postgres -c "CREATE TABLE machine_status (
+//      id SERIAL PRIMARY KEY,
+//      machine_id VARCHAR(10),
+//      is_healthy BOOLEAN,
+//      error_flags INTEGER,
+//      uptime_hours DECIMAL,
+//      recorded_at TIMESTAMPTZ
+//    );"
+//    psql -h localhost -U postgres -c "CREATE TABLE machine_telemetry (
+//      id SERIAL PRIMARY KEY,
+//      machine_id VARCHAR(10),
+//      temperature_celsius DECIMAL,
+//      pressure_bar DECIMAL,
+//      rpm INTEGER,
+//      recorded_at TIMESTAMPTZ
+//    );"
+// 4. Run: dotnet run --project src/Gluey.Cli -- run samples/05-advanced-protocol.gflow
+// 5. Publish test status message (msg_type=1):
+//    # Binary: AB CD 01 01 00 0B 50 4D 50 31 00 00 00 00 01 51 80
+//    # Header: magic=0xABCD, version=1, msg_type=1, length=11
+//    # Payload: machine_id="PMP1", status_code=0, error_flags=0, uptime=86400 (24h)
+//    echo -n "q80BAQALUE1QMQAAAAABUZAA" | base64 -d | mosquitto_pub -t "machines/pump-001/data" -s
+// 6. Publish test telemetry message (msg_type=2):
+//    # Binary: AB CD 01 02 00 0C 50 4D 50 32 01 C2 00 01 86 A0 0B B8
+//    # Header: magic=0xABCD, version=1, msg_type=2, length=12
+//    # Payload: machine_id="PMP2", temperature=450 (45.0°C), pressure=100000 (1 bar), rpm=3000
+//    echo -n "q80BAgAMUE1QMgHCAAGGoAu4" | base64 -d | mosquitto_pub -t "machines/pump-002/data" -s
+
+flow advanced-protocol v1.0 {
+  from mqtt("mqtt://localhost:1883") {
+    topics: ["machines/+/data"]
+    qos: 1
+    client_id: "gluey-protocol-001"
+  }
+
+  // First decode the binary header to extract msg_type for routing
+  | decode.binary {
+      format: [
+        { name: "magic", offset: 0, length: 2, type: "uint16_be" },
+        { name: "version", offset: 2, length: 1, type: "uint8" },
+        { name: "msg_type", offset: 3, length: 1, type: "uint8" },
+        { name: "length", offset: 4, length: 2, type: "uint16_be" },
+        { name: "machine_id", offset: 6, length: 4, type: "string" },
+        { name: "status_code", offset: 10, length: 1, type: "uint8" },
+        { name: "error_flags", offset: 11, length: 2, type: "uint16_be" },
+        { name: "uptime", offset: 13, length: 4, type: "uint32_be" },
+        { name: "temperature", offset: 10, length: 2, type: "int16_be" },
+        { name: "pressure", offset: 12, length: 4, type: "uint32_be" },
+        { name: "rpm", offset: 16, length: 2, type: "uint16_be" }
+      ]
+    }
+
+  // Transform to extract relevant fields and compute derived values
+  | transform {
+      msg_type: msg_type
+      machine_id: machine_id
+      // Status fields (only relevant when msg_type == 1)
+      is_healthy: status_code == 0 ? true : false
+      error_flags: error_flags
+      uptime_hours: uptime / 3600
+      // Telemetry fields (only relevant when msg_type == 2)
+      temperature_celsius: temperature / 10
+      pressure_bar: pressure / 100000
+      rpm: rpm
+      recorded_at: now()
+    }
+
+  // Route by message type
+  | route {
+      status_msg: msg_type == 1
+      telemetry_msg: msg_type == 2
+      unknown_msg: *
+    }
+
+  // Status messages go to machine_status table
+  status_msg -> sql("Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres") {
+    table: "machine_status"
+    columns: {
+      machine_id: "machine_id",
+      is_healthy: "is_healthy",
+      error_flags: "error_flags",
+      uptime_hours: "uptime_hours",
+      recorded_at: "recorded_at"
+    }
+  }
+
+  // Telemetry messages go to machine_telemetry table
+  telemetry_msg -> sql("Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres") {
+    table: "machine_telemetry"
+    columns: {
+      machine_id: "machine_id",
+      temperature_celsius: "temperature_celsius",
+      pressure_bar: "pressure_bar",
+      rpm: "rpm",
+      recorded_at: "recorded_at"
+    }
+  }
+
+  // Unknown message types go to console for debugging
+  unknown_msg -> console()
+}
