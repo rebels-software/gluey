@@ -501,7 +501,7 @@ public sealed class TransformTransform : ITransformPlugin
         {
             return functionName.ToLowerInvariant() switch
             {
-                "now" => DateTimeOffset.UtcNow.ToString("o"), // ISO 8601 format
+                "now" => DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"), // ISO 8601 format
                 "uuid" => Guid.NewGuid().ToString(),
                 "timestamp" => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 _ => null
