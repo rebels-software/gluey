@@ -573,7 +573,7 @@
         "In engine/docs/dsl-reference.md"
       ],
       "priority": 35,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
