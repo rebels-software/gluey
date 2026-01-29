@@ -963,3 +963,27 @@
 - Type tables for binary decode are essential for IoT protocols
 - Error handling documentation (graceful failures) is important for production use
 
+## [US-036] - Create README.md - 2026-01-29
+
+### Implementation
+- Created engine/README.md with all acceptance criteria:
+  - Project description: No-code IoT message router that connects data sources to destinations
+  - Value proposition: Model data flows like MQTT → filter → transform → SQL without writing code
+  - Feature highlights: Data sources/destinations, message processing, operations
+  - Quick start example: Build, validate, run workflow, test with curl
+  - Docker usage section
+  - Sample workflows table with descriptions
+  - Links to documentation (getting-started.md, dsl-reference.md, plugins.md)
+  - Built-in plugins table
+  - License information: Apache 2.0, Copyright 2026 Rebels Software
+
+### Files Modified
+- README.md (new)
+
+### Learnings
+- README should lead with value proposition and concrete example code
+- Feature highlights organized by category (sources/destinations, processing, operations)
+- Quick start should be copy-pasteable commands that work immediately
+- Link to detailed docs rather than duplicating content
+- License info at bottom with link to full LICENSE file
+
