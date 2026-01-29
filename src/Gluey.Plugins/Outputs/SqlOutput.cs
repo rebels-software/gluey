@@ -299,7 +299,7 @@ public sealed class SqlOutput : IOutputPlugin
 
         return current.ValueKind switch
         {
-            JsonValueKind.String => current.GetString(),
+            JsonValueKind.String => ConvertStringValue(current.GetString()),
             JsonValueKind.Number when current.TryGetInt32(out var intVal) => intVal,
             JsonValueKind.Number when current.TryGetInt64(out var longVal) => longVal,
             JsonValueKind.Number when current.TryGetDouble(out var doubleVal) => doubleVal,
@@ -309,6 +309,34 @@ public sealed class SqlOutput : IOutputPlugin
             JsonValueKind.Object or JsonValueKind.Array => current.GetRawText(), // Store as JSON string
             _ => current.GetRawText()
         };
+    }
+
+    /// <summary>
+    /// Converts string values to appropriate CLR types.
+    /// Detects ISO 8601 datetime strings and converts them to DateTimeOffset for proper SQL timestamp handling.
+    /// </summary>
+    private static object? ConvertStringValue(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        // Try to parse as ISO 8601 datetime (e.g., "2026-01-29T10:30:45.123Z" or "2026-01-29T10:30:45.123+00:00")
+        // This allows now() function results to be properly inserted into TIMESTAMP/TIMESTAMPTZ columns
+        if (DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind, out var dateTimeOffset))
+        {
+            // Check if it looks like a datetime (has T separator and contains time components)
+            // This prevents regular strings like "hello" from being misinterpreted
+            var tIndex = value.IndexOf('T');
+            if (tIndex > 0 && (value.EndsWith('Z') || value.Contains('+') || value.IndexOf('-', tIndex) >= 0))
+            {
+                return dateTimeOffset;
+            }
+        }
+
+        return value;
     }
 
     /// <summary>
