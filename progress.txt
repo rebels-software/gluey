@@ -4,9 +4,9 @@
 
 ## Summary
 - Total Stories: 36
-- Completed: 9
+- Completed: 10
 - In Progress: 0
-- Remaining: 27
+- Remaining: 26
 
 ## Codebase Patterns
 - Solution uses traditional `.sln` format (not `.slnx`)
@@ -237,4 +237,32 @@
 - Case-insensitive dictionary keys simplify DSL matching (http == HTTP == Http)
 - Error messages should list available options for better DX
 - Plugin registration in constructor runs at startup, satisfying "register all built-in plugins at startup"
+
+## [US-010] - Implement GlueyHostedService - 2026-01-29
+
+### Implementation
+- Created GlueyHostedService.cs in Gluey.Runtime implementing IHostedService:
+  - StartAsync: parses flow file using Lexer/Parser, initializes plugins via PluginRegistry, starts WorkflowRunner
+  - StopAsync: signals cancellation, waits for drain with 5-second timeout
+  - Logs startup and shutdown events via ILogger<GlueyHostedService>
+  - Implements IAsyncDisposable for proper cleanup of plugins
+- Created WorkflowRunner.cs stub (full implementation in US-011):
+  - Constructor takes input, transforms, and output plugins
+  - RunAsync method waits for cancellation (stub implementation)
+- Added package references to Gluey.Runtime.csproj:
+  - Microsoft.Extensions.Hosting.Abstractions (v9.0.1)
+  - Microsoft.Extensions.Logging.Abstractions (v9.0.1)
+  - ProjectReference to Gluey.Parser
+
+### Files Modified
+- src/Gluey.Runtime/GlueyHostedService.cs (new)
+- src/Gluey.Runtime/WorkflowRunner.cs (new - stub)
+- src/Gluey.Runtime/Gluey.Runtime.csproj (added packages and parser reference)
+
+### Learnings
+- IHostedService requires StartAsync and StopAsync methods
+- Use CancellationTokenSource.CreateLinkedTokenSource for composing multiple cancellation sources
+- WaitAsync with timeout enables graceful shutdown with deadline
+- MergeInputConfig helper merges URL into config dictionary for plugin initialization
+- Output detection logic scans routes and last pipeline step to find output plugin
 
