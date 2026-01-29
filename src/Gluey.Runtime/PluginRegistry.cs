@@ -13,6 +13,7 @@
 // limitations under the License.
 
 using Gluey.Core.Abstractions;
+using Gluey.Plugins.Inputs;
 
 namespace Gluey.Runtime;
 
@@ -39,7 +40,7 @@ public sealed class PluginRegistry
     private void RegisterBuiltInPlugins()
     {
         // Input plugins
-        // RegisterInput("http", () => new HttpWebhookInput());
+        RegisterInput("http", () => new HttpWebhookInput());
         // RegisterInput("mqtt", () => new MqttSubscriberInput());
 
         // Transform plugins

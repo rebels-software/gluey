@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Gluey.Core\Gluey.Core.csproj" />
     <ProjectReference Include="..\Gluey.Parser\Gluey.Parser.csproj" />
+    <ProjectReference Include="..\Gluey.Plugins\Gluey.Plugins.csproj" />
   </ItemGroup>
 
 </Project>

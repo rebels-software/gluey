@@ -319,3 +319,34 @@
 - Host.RunAsync blocks until cancellation token is signaled, enabling graceful shutdown
 - Even though plugins aren't implemented yet (US-013+), the CLI structure and signal handling work correctly
 
+## [US-013] - Implement HttpWebhookInput plugin - 2026-01-29
+
+### Implementation
+- Created HttpWebhookInput.cs in Gluey.Plugins/Inputs/ implementing IInputPlugin
+- Uses Kestrel minimal API with WebApplication.CreateSlimBuilder
+- Listens on configured port (default: 8080) and path (default: /webhook)
+- Accepts POST requests with JSON or binary body
+- Handles Content-Type: application/json by parsing JSON directly to JsonDocument
+- Handles Content-Type: application/octet-stream by storing bytes as base64 in metadata
+- Unknown content types wrapped as {"data": "..."} JSON object
+- Uses Channel<Message> for async message queueing (unbounded, single-reader)
+- Implements IAsyncDisposable for proper cleanup
+- Returns HTTP 200 OK on success, 500 on error
+- Server runs in background task started during InitializeAsync
+
+### Files Modified
+- src/Gluey.Plugins/Inputs/HttpWebhookInput.cs (new - 183 lines)
+- src/Gluey.Plugins/Gluey.Plugins.csproj (added FrameworkReference to Microsoft.AspNetCore.App, Gluey.Core reference)
+- src/Gluey.Plugins/Class1.cs (deleted)
+- src/Gluey.Runtime/PluginRegistry.cs (registered HttpWebhookInput in RegisterBuiltInPlugins)
+- src/Gluey.Runtime/Gluey.Runtime.csproj (added Gluey.Plugins reference)
+
+### Learnings
+- Use FrameworkReference instead of PackageReference for Microsoft.AspNetCore.App in .NET 10
+- WebApplication.CreateSlimBuilder(args) accepts --urls command-line arg for port configuration
+- Channel<T> is perfect for bridging HTTP requests (push) to IAsyncEnumerable (pull) patterns
+- UnboundedChannelOptions with SingleReader/SingleWriter optimizes channel performance
+- Binary payloads stored as base64 in metadata since Message.Payload requires JsonDocument
+- ConfigureKestrel/UseUrls extensions not available on ConfigureWebHostBuilder in minimal hosting
+- RunAsync blocks until cancellation, so must run in background Task to avoid blocking InitializeAsync
+
