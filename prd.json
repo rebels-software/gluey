@@ -555,7 +555,7 @@
         "In engine/docs/getting-started.md"
       ],
       "priority": 34,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

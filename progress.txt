@@ -894,3 +894,23 @@
 - Layer caching: copy .csproj files first, restore, then copy source - avoids full restore on code changes
 - .NET 10 preview images use -preview suffix (e.g., aspnet:10.0-preview-alpine)
 
+## [US-033] - Write getting-started documentation - 2026-01-29
+
+### Implementation
+- Created docs/getting-started.md quick start guide
+- Covers installation: building from source and Docker
+- First workflow walkthrough using hello-world.gflow as example
+- Includes validation step before running
+- Shows running workflow from source and Docker
+- Testing with curl examples
+- Lists all sample workflows with descriptions
+- Links to other docs (dsl-reference.md, plugins.md)
+
+### Files Modified
+- docs/getting-started.md (new)
+
+### Learnings
+- Documentation should include both source and Docker installation paths
+- Sample workflows table provides easy reference for users exploring features
+- Placeholder links to other docs maintain navigation structure for future docs
+
