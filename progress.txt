@@ -4,9 +4,9 @@
 
 ## Summary
 - Total Stories: 36
-- Completed: 4
+- Completed: 5
 - In Progress: 0
-- Remaining: 32
+- Remaining: 31
 
 ## Codebase Patterns
 - Solution uses traditional `.sln` format (not `.slnx`)
@@ -109,4 +109,32 @@
 - Dotted names (json.parse, decode.binary) are tokenized as separate Identifier and Dot tokens - the parser will combine them
 - Line/column tracking is critical for good error messages
 - StringBuilder used for string and number scanning for efficiency
+
+## [US-005] - Implement DSL parser - basic structure - 2026-01-29
+
+### Implementation
+- Created Parser.cs in Gluey.Parser with:
+  - ParseException: custom exception with line/column for error reporting
+  - Parser class: recursive descent parser that converts tokens to Flow AST
+- Parsing capabilities:
+  - `flow <name> v<version> { ... }` - flow header with hyphenated names supported
+  - `from <type>("url") { key: value }` - input blocks with optional URL and config
+  - `| <transform>(args)` - pipeline steps with parenthesized arguments
+  - `| <transform> { config }` - pipeline steps with config blocks
+  - Dotted transform names (json.parse, decode.binary) parsed correctly
+  - Config values: strings, numbers (int/float/hex), booleans, arrays, nested objects
+  - on_error handling: skip and route_to("name") parsed from config
+- Added ProjectReference from Gluey.Parser to Gluey.Core for model types
+
+### Files Modified
+- src/Gluey.Parser/Parser.cs (new - ~470 lines)
+- src/Gluey.Parser/Gluey.Parser.csproj (added Gluey.Core reference)
+
+### Learnings
+- Parser needs reference to Gluey.Core to use domain models (Flow, InputNode, PipelineStep)
+- Hyphenated flow names (e.g., "hello-world") require special handling - parse Identifier-Identifier sequence
+- Version format (v1.0) is tricky - starts with identifier "v1" then "." then number "0"
+- Keywords like `filter`, `transform`, `route` can also be transform type names - parser handles both
+- JsonSerializer.SerializeToElement() is useful for converting parsed values to JsonElement
+- Route parsing deferred to US-006 per acceptance criteria breakdown
 
