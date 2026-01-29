@@ -914,3 +914,28 @@
 - Sample workflows table provides easy reference for users exploring features
 - Placeholder links to other docs maintain navigation structure for future docs
 
+## [US-034] - Write DSL reference documentation - 2026-01-29
+
+### Implementation
+- Created comprehensive docs/dsl-reference.md (696 lines)
+- Documented all 8 acceptance criteria:
+  1. Flow structure syntax - naming rules, version format, comments, minimal example
+  2. Input block syntax - HTTP webhook, MQTT subscriber with config tables
+  3. Transform syntax - all 8 transforms (json.parse, filter, transform, decode.binary, decode.base64, decode.hex, route) with detailed config options
+  4. Output syntax - console, http, mqtt, sql with config tables and examples
+  5. Route block syntax - conditions, evaluation order, destinations
+  6. Error handling syntax - skip and route_to actions
+  7. Expression syntax - field access, literals, comparison/logical/arithmetic operators, ternary, precedence table
+- Table of contents for easy navigation
+- Links to related documentation
+
+### Files Modified
+- docs/dsl-reference.md (new - 696 lines)
+
+### Learnings
+- DSL documentation should show both simple and complex examples for each feature
+- Config option tables are essential for quick reference
+- Binary decode types need endianness documentation (be/le suffixes)
+- Expression precedence table helps users understand complex conditions
+- Topic interpolation in MQTT output ({{field}}) needs explicit documentation
+
