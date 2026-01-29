@@ -733,3 +733,31 @@
 - Message.WithMetadata() provides clean immutable update pattern
 - RouteTransform.RouteMetadataKey constant ("_route") for consistent key access
 
+## [US-027] - Extend WorkflowRunner for routing - 2026-01-29
+
+### Implementation
+- Extended WorkflowRunner.cs to support multiple output pipelines based on route metadata:
+  - Added new constructor accepting `IReadOnlyDictionary<string, RoutePipeline>` for route outputs
+  - Detects `_route` metadata key in message after transforms (set by RouteTransform)
+  - Routes message to appropriate output pipeline based on route name
+  - Falls back to default output if no route matches or no route metadata present
+  - Route pipelines can include additional transforms before output
+- Created RoutePipeline class to encapsulate route-specific transforms + output
+- Updated GlueyHostedService.cs to initialize route pipelines:
+  - Detects routes with destinations in Flow definition
+  - Creates RoutePipeline for each route with transforms and output plugin
+  - Supports mixed routing: default output + route outputs
+  - Proper disposal of all route output plugins
+
+### Files Modified
+- src/Gluey.Runtime/WorkflowRunner.cs (extended for routing, added RoutePipeline class)
+- src/Gluey.Runtime/GlueyHostedService.cs (added route pipeline initialization)
+
+### Learnings
+- WorkflowRunner uses two constructors: simple (single output) and routing (multiple outputs)
+- Route metadata key "_route" is shared between RouteTransform and WorkflowRunner
+- RoutePipeline allows per-route transforms before output (e.g., different binary decoding per message type)
+- Routes are matched by name (case-insensitive) against the "_route" metadata value
+- If no route matches and no default output, message is dropped (intentional for strict routing)
+- GlueyHostedService detects routing by checking if any Route has DestinationSteps
+

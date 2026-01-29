@@ -33,7 +33,8 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
     private Flow? _flow;
     private IInputPlugin? _inputPlugin;
     private List<ITransformPlugin>? _transformPlugins;
-    private IOutputPlugin? _outputPlugin;
+    private IOutputPlugin? _defaultOutputPlugin;
+    private Dictionary<string, RoutePipeline>? _routeOutputs;
     private WorkflowRunner? _workflowRunner;
     private CancellationTokenSource? _cts;
     private Task? _runTask;
@@ -76,10 +77,25 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
 
         // Create and start the workflow runner
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _workflowRunner = new WorkflowRunner(
-            _inputPlugin!,
-            _transformPlugins!,
-            _outputPlugin!);
+
+        if (_routeOutputs != null && _routeOutputs.Count > 0)
+        {
+            // Routing is enabled - use constructor with route outputs
+            _workflowRunner = new WorkflowRunner(
+                _inputPlugin!,
+                _transformPlugins!,
+                _defaultOutputPlugin, // Can be null if all messages must route
+                _routeOutputs);
+            _logger.LogInformation("Workflow '{Name}' configured with {RouteCount} route outputs", _flow.Name, _routeOutputs.Count);
+        }
+        else
+        {
+            // No routing - use simple constructor
+            _workflowRunner = new WorkflowRunner(
+                _inputPlugin!,
+                _transformPlugins!,
+                _defaultOutputPlugin!);
+        }
 
         _runTask = _workflowRunner.RunAsync(_cts.Token);
         _logger.LogInformation("Workflow '{Name}' started", _flow.Name);
@@ -134,12 +150,22 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
             await _inputPlugin.DisposeAsync();
         }
 
-        if (_outputPlugin != null)
+        if (_defaultOutputPlugin != null)
         {
-            await _outputPlugin.DisposeAsync();
+            await _defaultOutputPlugin.DisposeAsync();
+        }
+
+        // Dispose route output plugins
+        if (_routeOutputs != null)
+        {
+            foreach (var routePipeline in _routeOutputs.Values)
+            {
+                await routePipeline.Output.DisposeAsync();
+            }
         }
 
         _transformPlugins = null;
+        _routeOutputs = null;
         _workflowRunner = null;
     }
 
@@ -192,29 +218,80 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
             _transformPlugins.Add(transform);
         }
 
-        // Initialize output plugin
-        if (outputStep != null)
+        // Check if we have routing (routes with destinations defined)
+        var routesWithDestinations = flow.Routes.Where(r => r.DestinationSteps.Count > 0).ToList();
+        if (routesWithDestinations.Count > 0)
         {
-            // Use the last pipeline step as output
-            _outputPlugin = _pluginRegistry.CreateOutput(outputStep.Type);
-            await _outputPlugin.InitializeAsync(outputStep.Config, cancellationToken);
+            // Initialize route output pipelines
+            _routeOutputs = new Dictionary<string, RoutePipeline>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var route in routesWithDestinations)
+            {
+                var routePipeline = await CreateRoutePipelineAsync(route, cancellationToken);
+                _routeOutputs[route.Name] = routePipeline;
+                _logger.LogDebug("Initialized route '{RouteName}' with output type '{OutputType}'",
+                    route.Name, routePipeline.Output.Type);
+            }
+
+            // Default output is optional when routing is enabled
+            // Only set if there's an output in the main pipeline
+            if (outputStep != null)
+            {
+                _defaultOutputPlugin = _pluginRegistry.CreateOutput(outputStep.Type);
+                await _defaultOutputPlugin.InitializeAsync(outputStep.Config, cancellationToken);
+            }
         }
         else
         {
-            // Check routes for output destinations
-            _outputPlugin = DetermineOutputPlugin(flow);
-            if (_outputPlugin != null)
+            // No routing - initialize single output
+            if (outputStep != null)
             {
-                var outputConfig = DetermineOutputConfig(flow);
-                await _outputPlugin.InitializeAsync(outputConfig, cancellationToken);
+                // Use the last pipeline step as output
+                _defaultOutputPlugin = _pluginRegistry.CreateOutput(outputStep.Type);
+                await _defaultOutputPlugin.InitializeAsync(outputStep.Config, cancellationToken);
             }
             else
             {
                 throw new InvalidOperationException(
                     "No output destination found in workflow. " +
-                    "Define an output in a route destination or as the final pipeline step.");
+                    "Define an output as the final pipeline step or in route destinations.");
             }
         }
+    }
+
+    /// <summary>
+    /// Creates a RoutePipeline from a Route definition.
+    /// </summary>
+    private async Task<RoutePipeline> CreateRoutePipelineAsync(Route route, CancellationToken cancellationToken)
+    {
+        var transforms = new List<ITransformPlugin>();
+        IOutputPlugin? output = null;
+
+        foreach (var step in route.DestinationSteps)
+        {
+            if (_pluginRegistry.IsOutputPlugin(step.Type))
+            {
+                // This is the output plugin for this route
+                output = _pluginRegistry.CreateOutput(step.Type);
+                await output.InitializeAsync(step.Config, cancellationToken);
+            }
+            else if (_pluginRegistry.IsTransformPlugin(step.Type))
+            {
+                // This is a transform plugin in the route pipeline
+                var transform = _pluginRegistry.CreateTransform(step.Type);
+                await transform.InitializeAsync(step.Config, cancellationToken);
+                transforms.Add(transform);
+            }
+        }
+
+        if (output == null)
+        {
+            throw new InvalidOperationException(
+                $"Route '{route.Name}' has no output destination defined. " +
+                "Each route must have at least one output plugin.");
+        }
+
+        return new RoutePipeline(transforms, output);
     }
 
     /// <summary>
@@ -232,67 +309,4 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
         return config;
     }
 
-    /// <summary>
-    /// Determines the output plugin from the flow definition.
-    /// Looks for route destinations or a terminal output node.
-    /// </summary>
-    private IOutputPlugin? DetermineOutputPlugin(Flow flow)
-    {
-        // Check routes for output destinations
-        foreach (var route in flow.Routes)
-        {
-            if (route.DestinationSteps.Count > 0)
-            {
-                var firstDest = route.DestinationSteps[0];
-                // Try to create as output plugin
-                try
-                {
-                    return _pluginRegistry.CreateOutput(firstDest.Type);
-                }
-                catch (ArgumentException)
-                {
-                    // Not an output plugin, continue checking
-                }
-            }
-        }
-
-        // Check last pipeline step
-        if (flow.PipelineSteps.Count > 0)
-        {
-            var lastStep = flow.PipelineSteps[^1];
-            try
-            {
-                return _pluginRegistry.CreateOutput(lastStep.Type);
-            }
-            catch (ArgumentException)
-            {
-                // Not an output plugin
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Determines the output config from the flow definition.
-    /// </summary>
-    private static IReadOnlyDictionary<string, System.Text.Json.JsonElement> DetermineOutputConfig(Flow flow)
-    {
-        // Check routes for output destinations
-        foreach (var route in flow.Routes)
-        {
-            if (route.DestinationSteps.Count > 0)
-            {
-                return route.DestinationSteps[0].Config;
-            }
-        }
-
-        // Check last pipeline step
-        if (flow.PipelineSteps.Count > 0)
-        {
-            return flow.PipelineSteps[^1].Config;
-        }
-
-        return new Dictionary<string, System.Text.Json.JsonElement>();
-    }
 }
