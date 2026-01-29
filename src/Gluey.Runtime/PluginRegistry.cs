@@ -48,7 +48,7 @@ public sealed class PluginRegistry
         // Transform plugins
         RegisterTransform("json.parse", () => new JsonParseTransform());
         RegisterTransform("filter", () => new FilterTransform());
-        // RegisterTransform("transform", () => new TransformTransform());
+        RegisterTransform("transform", () => new TransformTransform());
         // RegisterTransform("decode.binary", () => new BinaryDecodeTransform());
         // RegisterTransform("decode.base64", () => new Base64DecodeTransform());
         // RegisterTransform("decode.hex", () => new HexDecodeTransform());

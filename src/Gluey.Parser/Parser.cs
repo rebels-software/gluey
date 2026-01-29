@@ -169,12 +169,26 @@ public sealed class Parser
         var firstToken = Expect(TokenType.Identifier, "Expected flow name");
         nameParts.Add(firstToken.Value);
 
-        // Allow hyphenated names like "hello-world"
+        // Allow hyphenated names like "hello-world" or "test-transform"
+        // Keywords like "transform", "filter", "route" are valid as part of hyphenated names
         while (Check(TokenType.Minus))
         {
             Advance(); // consume '-'
-            var nextPart = Expect(TokenType.Identifier, "Expected identifier after '-' in flow name");
-            nameParts.Add(nextPart.Value);
+            var nextToken = Current();
+
+            // Accept identifier or keyword tokens as part of hyphenated name
+            if (nextToken.Type == TokenType.Identifier ||
+                nextToken.Type == TokenType.Transform ||
+                nextToken.Type == TokenType.Filter ||
+                nextToken.Type == TokenType.Route)
+            {
+                Advance();
+                nameParts.Add(nextToken.Value);
+            }
+            else
+            {
+                throw new ParseException("Expected identifier after '-' in flow name", nextToken);
+            }
         }
 
         return string.Join("-", nameParts);
@@ -306,6 +320,11 @@ public sealed class Parser
             {
                 config = ParseRouteConditionsBlock();
             }
+            // Special handling for transform blocks: { field: expression, ... }
+            else if (transformType == "transform")
+            {
+                config = ParseTransformMappingBlock();
+            }
             else
             {
                 // Parse config block: { key: value, ... }
@@ -371,6 +390,66 @@ public sealed class Parser
             }
 
             config[key] = JsonSerializer.SerializeToElement(condition);
+
+            // Optional comma between entries
+            if (Check(TokenType.Comma))
+            {
+                Advance();
+            }
+        }
+
+        Expect(TokenType.RightBrace, "Expected '}'");
+
+        return config;
+    }
+
+    /// <summary>
+    /// Parses a transform mapping block: { output_field: expression, ... }
+    /// Expressions can be field references, arithmetic, ternary expressions, or function calls.
+    /// Also supports array and object literal values for backward compatibility.
+    /// </summary>
+    private Dictionary<string, JsonElement> ParseTransformMappingBlock()
+    {
+        Expect(TokenType.LeftBrace, "Expected '{'");
+
+        var config = new Dictionary<string, JsonElement>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            // Parse output field name
+            var keyToken = Current();
+            string key;
+
+            if (keyToken.Type == TokenType.Identifier)
+            {
+                key = keyToken.Value;
+                Advance();
+            }
+            else
+            {
+                throw new ParseException("Expected output field name", keyToken);
+            }
+
+            // Expect colon
+            Expect(TokenType.Colon, "Expected ':' after field name");
+
+            // Check if the value is an array or object literal (not an expression)
+            if (Check(TokenType.LeftBracket))
+            {
+                // Array literal - use config value parser
+                config[key] = ParseArrayValue();
+            }
+            else if (Check(TokenType.LeftBrace))
+            {
+                // Object literal - use config value parser
+                config[key] = ParseObjectValue();
+            }
+            else
+            {
+                // Parse expression (handles field refs, arithmetic, ternary, function calls)
+                var expression = ParseExpression();
+                config[key] = JsonSerializer.SerializeToElement(expression);
+            }
 
             // Optional comma between entries
             if (Check(TokenType.Comma))

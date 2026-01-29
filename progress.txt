@@ -441,3 +441,32 @@
 - Numeric comparisons use small epsilon for floating point equality
 - String comparisons fall back to lexicographic ordering for >/< operators
 
+## [US-018] - Implement TransformTransform plugin - 2026-01-29
+
+### Implementation
+- Created TransformTransform.cs in Gluey.Plugins/Transforms/ implementing ITransformPlugin
+- Built a full expression evaluator supporting:
+  - Direct field copy: device_id: device_id
+  - Nested field access: lat: device.location.lat
+  - Arithmetic: temp_f: temperature * 9 / 5 + 32 (with proper operator precedence)
+  - Ternary: level: temperature > 30 ? "high" : "normal"
+  - Built-in functions: now() (ISO 8601 timestamp), uuid(), timestamp() (Unix ms)
+- Updated Parser to handle transform blocks specially with ParseTransformMappingBlock()
+  - Transform config values are parsed as expressions (strings)
+  - Array and object literals still work for backward compatibility
+- Fixed hyphenated flow names to accept keywords (transform, filter, route) as parts
+- Registered TransformTransform as "transform" in PluginRegistry
+
+### Files Modified
+- src/Gluey.Plugins/Transforms/TransformTransform.cs (new - ~500 lines)
+- src/Gluey.Parser/Parser.cs (added ParseTransformMappingBlock, updated ParseFlowName)
+- src/Gluey.Runtime/PluginRegistry.cs (uncommented transform registration)
+
+### Learnings
+- Transform expressions need full arithmetic support (not just comparisons like filter)
+- Operator precedence: ternary < || < && < comparison < additive < multiplicative < unary
+- now() returns ISO 8601 format string for JSON serialization compatibility
+- Parser needed special handling for transform blocks similar to route blocks
+- Keywords like "transform" can appear in hyphenated flow names (e.g., "test-transform")
+- Array/object literals in transform blocks should use standard config parsing for backward compat
+
