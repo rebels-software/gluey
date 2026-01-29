@@ -4,9 +4,9 @@
 
 ## Summary
 - Total Stories: 36
-- Completed: 7
+- Completed: 8
 - In Progress: 0
-- Remaining: 29
+- Remaining: 28
 
 ## Codebase Patterns
 - Solution uses traditional `.sln` format (not `.slnx`)
@@ -192,4 +192,25 @@
 - Use `GlueyParser = Gluey.Parser` alias to avoid namespace conflict with Parser class
 - xUnit [Fact] attribute is sufficient for simple tests; no additional setup needed
 - ParseException exposes Line/Column properties for precise error location testing
+
+## [US-008] - Implement CLI validate command - 2026-01-29
+
+### Implementation
+- Added System.CommandLine package (v2.0.0-beta4.22272.1) to Gluey.Cli
+- Added ProjectReference to Gluey.Parser for parsing functionality
+- Implemented validate command in Program.cs using System.CommandLine:
+  - `gluey validate <file.gflow>` parses file and reports success/failure
+  - On success: prints `✓ Valid: <filename>` to stdout
+  - On failure: prints `Error: <message> at line X, column Y` to stderr
+  - Exit code 0 on success, 1 on failure
+
+### Files Modified
+- src/Gluey.Cli/Gluey.Cli.csproj (added System.CommandLine package, Gluey.Parser reference)
+- src/Gluey.Cli/Program.cs (rewritten with validate command)
+
+### Learnings
+- System.CommandLine uses `InvocationContext` to set exit codes properly
+- SetHandler with Action/Func<Task> does not propagate return values as exit codes
+- Use `context.ParseResult.GetValueForArgument(arg)` to get argument values from InvocationContext
+- ParseException from Gluey.Parser provides line/column info for user-friendly error messages
 
