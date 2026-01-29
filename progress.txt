@@ -287,3 +287,35 @@
 - OperationCanceledException is expected during shutdown and should be caught gracefully
 - await foreach pattern cleanly handles async enumerable with cancellation token
 
+## [US-012] - Implement CLI run command - 2026-01-29
+
+### Implementation
+- Added 'run' command to Program.cs using System.CommandLine:
+  - Argument: FileInfo for .gflow file path
+  - Parses flow file first to extract name/version for startup message
+  - Builds .NET Generic Host with ApplicationBuilder
+  - Registers PluginRegistry and GlueyHostedService as singletons
+  - Configures console logging at Warning level
+  - Runs host with cancellation token for shutdown coordination
+- Signal handling:
+  - Console.CancelKeyPress handler for Ctrl+C (SIGINT)
+  - AppDomain.ProcessExit handler for SIGTERM (docker/systemd)
+  - Both handlers print "Shutting down..." and cancel CancellationTokenSource
+  - Handler sets e.Cancel = true to prevent immediate termination
+- Startup message: "Starting workflow '{name}' v{version}..."
+- Returns exit code 0 on clean shutdown, 1 on errors
+
+### Files Modified
+- src/Gluey.Cli/Program.cs (added RunWorkflow method and run command)
+- src/Gluey.Cli/Gluey.Cli.csproj (added Microsoft.Extensions.Hosting package and Gluey.Runtime reference)
+
+### Learnings
+- .NET Generic Host provides robust lifecycle management for daemon processes
+- Host.CreateApplicationBuilder() is the modern .NET 9+ way to build hosts (replaces HostBuilder)
+- Console.CancelKeyPress requires e.Cancel = true to prevent immediate termination
+- AppDomain.ProcessExit handles SIGTERM but can't be cancelled (process will exit anyway)
+- Parsing the flow file before building the host allows early validation and clean error messages
+- Logging level set to Warning to keep console output clean during normal operation
+- Host.RunAsync blocks until cancellation token is signaled, enabling graceful shutdown
+- Even though plugins aren't implemented yet (US-013+), the CLI structure and signal handling work correctly
+
