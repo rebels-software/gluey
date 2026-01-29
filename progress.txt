@@ -4,9 +4,9 @@
 
 ## Summary
 - Total Stories: 36
-- Completed: 8
+- Completed: 9
 - In Progress: 0
-- Remaining: 28
+- Remaining: 27
 
 ## Codebase Patterns
 - Solution uses traditional `.sln` format (not `.slnx`)
@@ -213,4 +213,28 @@
 - SetHandler with Action/Func<Task> does not propagate return values as exit codes
 - Use `context.ParseResult.GetValueForArgument(arg)` to get argument values from InvocationContext
 - ParseException from Gluey.Parser provides line/column info for user-friendly error messages
+
+## [US-009] - Implement PluginRegistry - 2026-01-29
+
+### Implementation
+- Created PluginRegistry.cs in Gluey.Runtime with:
+  - Dictionary-based factory storage for input, transform, and output plugins
+  - CreateInput(type), CreateTransform(type), CreateOutput(type) factory methods
+  - RegisterInput, RegisterTransform, RegisterOutput methods for adding factories
+  - Clear error messages listing available plugins when type not found
+  - Case-insensitive type matching (StringComparer.OrdinalIgnoreCase)
+- Added ProjectReference from Gluey.Runtime to Gluey.Core for plugin interfaces
+- Removed placeholder Class1.cs from Gluey.Runtime
+- Built-in plugin registrations are commented out (will be enabled as plugins are implemented)
+
+### Files Modified
+- src/Gluey.Runtime/PluginRegistry.cs (new)
+- src/Gluey.Runtime/Gluey.Runtime.csproj (added Gluey.Core reference)
+- src/Gluey.Runtime/Class1.cs (deleted)
+
+### Learnings
+- Factory pattern (Func<IPlugin>) allows lazy instantiation of plugins
+- Case-insensitive dictionary keys simplify DSL matching (http == HTTP == Http)
+- Error messages should list available options for better DX
+- Plugin registration in constructor runs at startup, satisfying "register all built-in plugins at startup"
 

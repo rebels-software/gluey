@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Gluey.Core\Gluey.Core.csproj" />
+  </ItemGroup>
+
 </Project>
