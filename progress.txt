@@ -939,3 +939,27 @@
 - Expression precedence table helps users understand complex conditions
 - Topic interpolation in MQTT output ({{field}}) needs explicit documentation
 
+## [US-035] - Write plugins documentation - 2026-01-29
+
+### Implementation
+- Created comprehensive docs/plugins.md (580+ lines)
+- Documented all 12 built-in plugins:
+  - Input: http, mqtt
+  - Transform: json.parse, filter, transform, decode.binary, decode.base64, decode.hex, route
+  - Output: console, http, mqtt, sql
+- Each plugin includes:
+  - Description and purpose
+  - Config options table with types and defaults
+  - Example usage with complete .gflow code
+  - Special features and edge cases
+
+### Files Modified
+- docs/plugins.md (new - 580+ lines)
+
+### Learnings
+- Documentation should include both simple and advanced examples for each plugin
+- Config option tables help quick reference
+- Showing data sources (where plugins look for data) clarifies behavior
+- Type tables for binary decode are essential for IoT protocols
+- Error handling documentation (graceful failures) is important for production use
+
