@@ -369,3 +369,28 @@
 - Console output is synchronous but wrapped in Task.CompletedTask for interface compliance
 - ISO 8601 format "yyyy-MM-ddTHH:mm:ss.fffzzz" includes milliseconds and timezone offset
 
+## [US-015] - Implement JsonParseTransform plugin - 2026-01-29
+
+### Implementation
+- Created JsonParseTransform.cs in Gluey.Plugins/Transforms/ implementing ITransformPlugin
+- Parses payload bytes as JSON from multiple sources:
+  - raw_bytes in metadata (from binary HTTP input as base64)
+  - "data" field in wrapped payload objects
+  - Direct JSON objects/arrays (pass-through with clone)
+  - Root-level string values containing JSON
+- Supports on_error configuration:
+  - on_error: "skip" - returns null to filter/drop message (default)
+  - on_error: { action: "route_to", target: "name" } - sets "_route_error" metadata flag
+- Registered JsonParseTransform in PluginRegistry as "json.parse"
+
+### Files Modified
+- src/Gluey.Plugins/Transforms/JsonParseTransform.cs (new - ~140 lines)
+- src/Gluey.Runtime/PluginRegistry.cs (added Transforms using, registered json.parse)
+
+### Learnings
+- Transform plugins implement ITransformPlugin with Type property, InitializeAsync, and ProcessAsync
+- ProcessAsync returns Message? - null signals message should be filtered/dropped
+- Use message.WithPayload() for immutable update pattern
+- Error handling config can be string ("skip") or object ({ action, target })
+- JsonDocument.Parse(root.GetRawText()) clones to avoid ownership issues
+

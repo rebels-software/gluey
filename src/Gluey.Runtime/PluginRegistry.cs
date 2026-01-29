@@ -15,6 +15,7 @@
 using Gluey.Core.Abstractions;
 using Gluey.Plugins.Inputs;
 using Gluey.Plugins.Outputs;
+using Gluey.Plugins.Transforms;
 
 namespace Gluey.Runtime;
 
@@ -45,7 +46,7 @@ public sealed class PluginRegistry
         // RegisterInput("mqtt", () => new MqttSubscriberInput());
 
         // Transform plugins
-        // RegisterTransform("json.parse", () => new JsonParseTransform());
+        RegisterTransform("json.parse", () => new JsonParseTransform());
         // RegisterTransform("filter", () => new FilterTransform());
         // RegisterTransform("transform", () => new TransformTransform());
         // RegisterTransform("decode.binary", () => new BinaryDecodeTransform());
