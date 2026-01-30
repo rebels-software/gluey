@@ -1010,3 +1010,25 @@
 - Per-project versioning chosen over Directory.Build.props (only CLI needs version)
 - System.CommandLine automatically handles --version from assembly metadata
 
+## README Fix - topic.split() Example - 2026-01-30
+
+### Implementation
+- Removed `topic.split("/")[1]` from README.md example as this syntax is NOT implemented
+- The DSL spec (gluey_dsl_docs.md) described this as a design goal but the implementation doesn't support it
+- Transform expressions only access `message.Payload.RootElement`, not `message.Metadata`
+- Changed example to use `device_id: device_id` (direct field copy from payload)
+
+### Files Modified
+- README.md (changed transform example to use payload field instead of topic.split)
+
+### New User Story Added
+- Created US-040: "Add metadata access in transform expressions"
+- Enables `$meta.topic` syntax to access MQTT topic and other metadata
+- Includes string functions: split(), substring(), indexOf()
+- This will enable the original example: `device_id: $meta.topic.split("/")[1]`
+
+### Learnings
+- README examples were copied from DSL spec without verifying implementation
+- Expression evaluators (FilterTransform, TransformTransform, RouteTransform) need access to message metadata
+- Proposed syntax: `$meta.<key>` to distinguish from payload field access
+

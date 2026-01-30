@@ -15,7 +15,7 @@ flow sensor-pipeline v1.0 {
   | json.parse(payload)
   | filter(temperature > 20)
   | transform {
-      device_id: topic.split("/")[1]
+      device_id: device_id
       temp_fahrenheit: temperature * 9/5 + 32
       alert: temperature > 35 ? "high" : "normal"
     }

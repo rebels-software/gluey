@@ -646,6 +646,28 @@
       "priority": 39,
       "passes": true,
       "notes": ""
+    },
+    {
+      "id": "US-040",
+      "title": "Add metadata access in transform expressions",
+      "description": "As a user, I want to access message metadata (like MQTT topic) in transform expressions so I can extract information from routing metadata into the payload.",
+      "acceptanceCriteria": [
+        "Support $meta.topic syntax to access topic from MQTT metadata",
+        "Support $meta.<key> syntax to access any metadata field",
+        "Implement string.split() function for expressions (e.g., $meta.topic.split('/')[1])",
+        "Implement string.substring() function for expressions",
+        "Implement string.indexOf() function for expressions",
+        "Works in transform plugin field mappings",
+        "Works in filter plugin conditions",
+        "Works in route plugin conditions",
+        "Update DSL reference documentation with new syntax",
+        "Add unit tests for metadata access expressions",
+        "All existing tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": "Currently, expression evaluators only access message.Payload.RootElement, not message.Metadata. This feature enables patterns like: transform { device_id: $meta.topic.split('/')[1] }"
     }
   ]
 }
