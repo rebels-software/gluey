@@ -1,6 +1,37 @@
 # Gluey CLI
 
+<p align="center">
+  <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/license-Apache%20License%202.0-blue" alt="Apache License 2.0"></a>
+</p>
+
 A no-code IoT message router that connects data sources to destinations using a simple, readable DSL.
+
+## How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              Gluey Flow                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────┐    ┌─────────────────────────────────┐    ┌─────────────┐ │
+│  │  INPUT  │───▶│          TRANSFORMS             │───▶│   OUTPUT    │ │
+│  └─────────┘    └─────────────────────────────────┘    └─────────────┘ │
+│                                                                         │
+│  • http         • json.parse    • filter            • console          │
+│  • mqtt         • transform     • route             • http             │
+│                 • decode.*      (binary/base64/hex) • mqtt             │
+│                                                      • sql             │
+└─────────────────────────────────────────────────────────────────────────┘
+
+         .gflow DSL                    Daemon Runtime
+    ┌──────────────────┐          ┌───────────────────────┐
+    │ flow my-flow v1  │          │   gluey run flow.gflow │
+    │   from mqtt(...) │   ───▶   │                       │
+    │   | json.parse   │  parse   │   • Graceful shutdown │
+    │   | filter(...)  │          │   • Error handling    │
+    │   | sql(...)     │          │   • Route branching   │
+    └──────────────────┘          └───────────────────────┘
+```
 
 ## What is Gluey?
 
