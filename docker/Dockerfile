@@ -2,7 +2,7 @@
 # Multi-stage build for minimal image size
 
 # Stage 1: Build
-FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.102 AS build
 WORKDIR /src
 
 # Copy solution and project files first (for layer caching)
@@ -25,15 +25,15 @@ COPY tests/ tests/
 RUN dotnet publish src/Gluey.Cli/Gluey.Cli.csproj \
     -c Release \
     -o /app/publish \
-    --no-restore \
+    # --no-restore \
     /p:PublishSingleFile=true \
-    /p:SelfContained=false \
-    /p:PublishTrimmed=false
+    /p:SelfContained=true \
+    /p:PublishTrimmed=true
 
 # Stage 2: Runtime
 # Using aspnet-alpine base to keep image under 100MB
 # Note: aspnet is required because Gluey.Plugins uses Microsoft.AspNetCore.App for HTTP input
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview-alpine AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.2 AS runtime
 WORKDIR /app
 
 # Copy published app

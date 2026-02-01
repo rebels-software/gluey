@@ -1,10 +1,14 @@
 # Gluey CLI
 
 <p align="center">
-  <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/license-Apache%20License%202.0-blue" alt="Apache License 2.0"></a>
+  <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/License-Apache-blue.svg?style=for-the-badge" alt="Apache License 2.0"></a>
 </p>
 
-A no-code IoT message router that connects data sources to destinations using a simple, readable DSL.
+Gluey is a command-line tool and daemon runtime for building IoT message pipelines. Write your data flows in `.gflow` files - a readable DSL designed for integrators - and let Gluey handle the protocol details, error handling, and graceful shutdowns.
+
+**The CLI** validates and runs workflows. **The runtime** keeps them alive as daemons with proper signal handling.
+
+No SDKs. No framework lock-in. Just declare what goes where.
 
 ## How It Works
 
@@ -13,29 +17,29 @@ A no-code IoT message router that connects data sources to destinations using a 
 │                              Gluey Flow                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  ┌─────────┐    ┌─────────────────────────────────┐    ┌─────────────┐ │
-│  │  INPUT  │───▶│          TRANSFORMS             │───▶│   OUTPUT    │ │
-│  └─────────┘    └─────────────────────────────────┘    └─────────────┘ │
+│  ┌─────────┐    ┌─────────────────────────────────┐    ┌─────────────┐  │
+│  │  INPUT  │───▶│          TRANSFORMS             │───▶│   OUTPUT    │  │
+│  └─────────┘    └─────────────────────────────────┘    └─────────────┘  │
 │                                                                         │
-│  • http         • json.parse    • filter            • console          │
-│  • mqtt         • transform     • route             • http             │
-│                 • decode.*      (binary/base64/hex) • mqtt             │
-│                                                      • sql             │
+│  • http         • json.parse    • filter            • console           │
+│  • mqtt         • transform     • route             • http              │
+│                 • decode.*      (binary/base64/hex) • mqtt              │
+│                                                      • sql              │
 └─────────────────────────────────────────────────────────────────────────┘
 
          .gflow DSL                    Daemon Runtime
-    ┌──────────────────┐          ┌───────────────────────┐
-    │ flow my-flow v1  │          │   gluey run flow.gflow │
-    │   from mqtt(...) │   ───▶   │                       │
-    │   | json.parse   │  parse   │   • Graceful shutdown │
-    │   | filter(...)  │          │   • Error handling    │
-    │   | sql(...)     │          │   • Route branching   │
-    └──────────────────┘          └───────────────────────┘
+    ┌──────────────────┐          ┌─────────────────────────┐
+    │ flow my-flow v1  │          │   gluey run flow.gflow  │
+    │   from mqtt(...) │   ───▶   │                         │
+    │   | json.parse   │  parse   │   • Graceful shutdown   │
+    │   | filter(...)  │          │   • Error handling      │
+    │   | sql(...)     │          │   • Route branching     │
+    └──────────────────┘          └─────────────────────────┘
 ```
 
 ## What is Gluey?
 
-Gluey lets you model data flows like `MQTT → filter → transform → SQL` without writing code. Define your workflows in `.gflow` files and run them as daemons. Perfect for IoT integrators who need to forward, transform, and route messages between protocols.
+Gluey lets you model data flows like `MQTT → filter → transform → SQL` in a declarative DSL. Define your workflows in `.gflow` files and run them as daemons. Perfect for IoT integrators who need to forward, transform, and route messages between protocols.
 
 ```gflow
 flow sensor-pipeline v1.0 {
@@ -145,6 +149,6 @@ docker run --rm -p 8080:8080 -v $(pwd)/samples:/workflows \
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
+Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
 Copyright 2026 Rebels Software

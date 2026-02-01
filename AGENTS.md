@@ -1,8 +1,8 @@
-# CLAUDE.md - Gluey CLI Engine
+# AGENTS.md - Gluey CLI Engine
 
 ## Project Overview
 
-Gluey CLI is a .NET 9 command-line tool and daemon runtime that parses `.gflow` DSL files and executes IoT message routing workflows. Connect data sources (HTTP, MQTT) to destinations (SQL, MQTT, HTTP) with transforms, filtering, and routing—without writing code.
+Gluey CLI is a .NET 10 command-line tool and daemon runtime that parses `.gflow` DSL files and executes IoT message routing workflows. Connect data sources (HTTP, MQTT) to destinations (SQL, MQTT, HTTP) with transforms, filtering, and routing—without writing code.
 
 ## Development Commands
 
@@ -112,6 +112,10 @@ All C# source files (*.cs) must include this copyright header at the top:
 ```
 
 Add this header before any `using` statements or namespace declarations.
+
+## Documentation Guidelines
+
+When writing or updating documentation (README files, markdown docs, user guides), always use the **humanizer** skill (`/humanizer`) to review the content before committing. This removes signs of AI-generated writing and makes documentation sound more natural.
 
 ## Task Tracking
 
