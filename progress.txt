@@ -3,10 +3,10 @@
 # Started: 2026-01-29
 
 ## Summary
-- Total Stories: 36
-- Completed: 10
+- Total Stories: 40
+- Completed: 40 (v0.1.0 stories) + 1 (US-040)
 - In Progress: 0
-- Remaining: 26
+- Remaining: Many (v0.2.0 stories)
 
 ## Codebase Patterns
 - Solution uses traditional `.sln` format (not `.slnx`)
@@ -1031,4 +1031,68 @@
 - README examples were copied from DSL spec without verifying implementation
 - Expression evaluators (FilterTransform, TransformTransform, RouteTransform) need access to message metadata
 - Proposed syntax: `$meta.<key>` to distinguish from payload field access
+
+## [US-040] - Add metadata access in transform expressions - 2026-02-03
+
+### Implementation
+- Created shared ExpressionEvaluator in Gluey.Plugins/Common/ExpressionEvaluator.cs
+- Consolidated three duplicate evaluators (TransformTransform, FilterTransform, RouteTransform) into one shared class
+- Added metadata access via `$meta.<key>` syntax:
+  - `$meta.topic` accesses MQTT topic from message metadata
+  - `$meta.source` accesses source field
+  - Any metadata key can be accessed with `$meta.<key>`
+- Implemented string methods with method chaining:
+  - `split(delimiter)` - returns array, can use `[index]` for element access
+  - `substring(start)` or `substring(start, length)` - returns substring
+  - `indexOf(search)` - returns index or -1 if not found
+  - `toLower()` / `toUpper()` - case conversion
+  - `trim()` - whitespace removal
+- Updated all three transform plugins to use shared evaluator with message metadata
+- Updated DSL reference documentation (docs/dsl-reference.md) with:
+  - Metadata Access section explaining $meta syntax
+  - String Functions section with examples
+  - Available metadata fields table
+- Created comprehensive unit tests (30 new tests in MetadataExpressionTests.cs)
+
+### Files Created
+- src/Gluey.Plugins/Common/ExpressionEvaluator.cs (new - shared evaluator)
+- tests/Gluey.Parser.Tests/MetadataExpressionTests.cs (new - 30 tests)
+- .claude/tasks/US-040-metadata-access.md (new - implementation plan)
+
+### Files Modified
+- src/Gluey.Plugins/Transforms/TransformTransform.cs (simplified to use shared evaluator)
+- src/Gluey.Plugins/Transforms/FilterTransform.cs (simplified to use shared evaluator)
+- src/Gluey.Plugins/Transforms/RouteTransform.cs (simplified to use shared evaluator)
+- tests/Gluey.Parser.Tests/Gluey.Parser.Tests.csproj (added Gluey.Plugins reference)
+- docs/dsl-reference.md (added metadata and string functions documentation)
+- prd.json (marked US-040 as passing)
+
+### Key Design Decisions
+- `$meta` prefix distinguishes metadata from payload fields
+- Method chaining allows `$meta.topic.split('/')[1]` pattern
+- Shared evaluator reduces code duplication (~1500 lines removed from 3 plugins)
+- Field path parsing handles dots carefully to detect method calls vs nested properties
+
+### Example Usage
+```gflow
+flow topic-extract v1.0 {
+  from mqtt("mqtt://broker:1883") {
+    topics: ["devices/+/telemetry"]
+  }
+
+  | json.parse(payload)
+  | transform {
+      device_id: $meta.topic.split('/')[1]
+      temperature: temperature
+    }
+  | filter($meta.source == "mqtt" && temperature > 20)
+  | console()
+}
+```
+
+### Learnings
+- Identifier parsing for nested field access (dot-separated) conflicts with method chaining
+- Solution: Parse identifiers one segment at a time, checking for `(` to detect method calls
+- ExpressionEvaluator constructor takes optional metadata dictionary (IReadOnlyDictionary<string, string>)
+- All 113 tests pass (83 existing + 30 new metadata tests)
 

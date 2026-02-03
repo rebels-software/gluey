@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Gluey.Parser/Gluey.Parser.csproj" />
+    <ProjectReference Include="../../src/Gluey.Plugins/Gluey.Plugins.csproj" />
   </ItemGroup>
 
   <ItemGroup>

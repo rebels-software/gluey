@@ -614,6 +614,86 @@ device.location.latitude
 | filter(device.status == "active")
 ```
 
+### Metadata Access
+
+Access message metadata (like MQTT topic) using the `$meta` prefix:
+
+```gflow
+// Access MQTT topic
+$meta.topic
+
+// Access any metadata field
+$meta.source
+$meta.qos
+```
+
+**Available Metadata Fields (from MQTT input):**
+
+| Field | Description |
+|-------|-------------|
+| `topic` | The MQTT topic the message was received on |
+| `source` | Always "mqtt" for MQTT messages |
+| `qos` | Quality of Service level (0, 1, or 2) |
+| `retain` | Whether the message was retained |
+
+**Example: Extract device ID from MQTT topic**
+
+```gflow
+flow topic-extract v1.0 {
+  from mqtt("mqtt://broker:1883") {
+    topics: ["devices/+/telemetry"]
+  }
+
+  | json.parse(payload)
+  | transform {
+      // Topic is "devices/sensor-001/telemetry"
+      // Extract "sensor-001" using split
+      device_id: $meta.topic.split('/')[1]
+      temperature: temperature
+    }
+  | console()
+}
+```
+
+### String Functions
+
+String methods can be called on string values (payload fields or metadata):
+
+```gflow
+// Split a string and get element by index
+$meta.topic.split('/')[1]
+device_name.split('-')[0]
+
+// Get substring
+serial_number.substring(0, 4)
+
+// Find index of substring
+topic.indexOf('/')
+```
+
+**Available String Functions:**
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `split(delimiter)` | Split string into array | `$meta.topic.split('/')` |
+| `substring(start)` | Get substring from index | `name.substring(5)` |
+| `substring(start, length)` | Get substring with length | `serial.substring(0, 4)` |
+| `indexOf(search)` | Find index of substring (-1 if not found) | `path.indexOf('/')` |
+| `toLower()` | Convert to lowercase | `name.toLower()` |
+| `toUpper()` | Convert to uppercase | `code.toUpper()` |
+| `trim()` | Remove leading/trailing whitespace | `input.trim()` |
+
+**Array Indexing:**
+
+After `split()`, use `[index]` to access array elements:
+
+```gflow
+// Topic: "devices/sensor-001/telemetry"
+$meta.topic.split('/')[0]  // "devices"
+$meta.topic.split('/')[1]  // "sensor-001"
+$meta.topic.split('/')[2]  // "telemetry"
+```
+
 ### Literals
 
 | Type | Examples |
