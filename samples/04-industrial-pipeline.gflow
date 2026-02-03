@@ -34,7 +34,7 @@ flow industrial-pipeline v1.0 {
 
   | json.parse(payload)
   | transform {
-      device_id: device_id
+      device_id: $meta.topic.split('/')[1]
       temperature: temperature
       pressure: pressure
       alert_level: temperature > 80 || pressure > 140 ? "critical" : "normal"
