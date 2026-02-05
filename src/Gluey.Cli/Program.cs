@@ -14,8 +14,12 @@
 
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using Gluey.Cli.Api;
 using Gluey.Parser;
 using Gluey.Runtime;
+using Gluey.Runtime.Persistence;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -49,6 +53,27 @@ runCommand.SetHandler(async (InvocationContext context) =>
 });
 
 rootCommand.AddCommand(runCommand);
+
+// daemon command group
+var daemonCommand = new Command("daemon", "Manage the Gluey daemon");
+
+// daemon start subcommand
+var daemonStartCommand = new Command("start", "Start the Gluey daemon");
+var portOption = new Option<int>(
+    name: "--port",
+    getDefaultValue: () => GlueyDaemonService.DefaultPort,
+    description: "The port to listen on");
+daemonStartCommand.AddOption(portOption);
+
+daemonStartCommand.SetHandler(async (InvocationContext context) =>
+{
+    var port = context.ParseResult.GetValueForOption(portOption);
+    var exitCode = await StartDaemon(port);
+    context.ExitCode = exitCode;
+});
+
+daemonCommand.AddCommand(daemonStartCommand);
+rootCommand.AddCommand(daemonCommand);
 
 return await rootCommand.InvokeAsync(args);
 
@@ -172,6 +197,83 @@ static async Task<int> RunWorkflow(FileInfo file)
     {
         Console.Error.WriteLine($"Error: {ex.Message}");
         return 1;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> StartDaemon(int port)
+{
+    try
+    {
+        // Create the web application builder
+        var builder = WebApplication.CreateBuilder();
+
+        // Configure Kestrel to listen on specified port
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.ListenAnyIP(port);
+        });
+
+        // Configure logging
+        builder.Logging.ClearProviders();
+        builder.Logging.AddConsole();
+        builder.Logging.SetMinimumLevel(LogLevel.Information);
+
+        // Register singleton services
+        builder.Services.AddSingleton<PluginRegistry>();
+        builder.Services.AddSingleton<FileStateStore>();
+        builder.Services.AddSingleton<WorkflowManager>(sp =>
+        {
+            var registry = sp.GetRequiredService<PluginRegistry>();
+            var logger = sp.GetRequiredService<ILogger<WorkflowManager>>();
+            return new WorkflowManager(registry, logger);
+        });
+        builder.Services.AddSingleton<GlueyDaemonService>(sp =>
+        {
+            var workflowManager = sp.GetRequiredService<WorkflowManager>();
+            var stateStore = sp.GetRequiredService<FileStateStore>();
+            var logger = sp.GetRequiredService<ILogger<GlueyDaemonService>>();
+            return new GlueyDaemonService(workflowManager, stateStore, logger, port);
+        });
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<GlueyDaemonService>());
+
+        // Register WorkflowManager provider for DI in API endpoints
+        builder.Services.AddScoped<WorkflowManager>(sp =>
+            sp.GetRequiredService<GlueyDaemonService>().WorkflowManager);
+
+        var app = builder.Build();
+
+        // Map API endpoints
+        app.MapWorkflowEndpoints();
+        app.MapDaemonEndpoints();
+
+        // Set up cancellation for Ctrl+C
+        var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (sender, e) =>
+        {
+            e.Cancel = true;
+            Console.WriteLine("Shutting down...");
+            cts.Cancel();
+        };
+
+        // Handle SIGTERM (docker stop, systemd, etc.)
+        AppDomain.CurrentDomain.ProcessExit += (sender, e) =>
+        {
+            Console.WriteLine("Shutting down...");
+            cts.Cancel();
+        };
+
+        // Print startup message
+        Console.WriteLine($"Gluey daemon started on port {port}");
+
+        // Run the application
+        await app.RunAsync(cts.Token);
+
+        return 0;
     }
     catch (Exception ex)
     {
