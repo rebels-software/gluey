@@ -138,6 +138,62 @@ listCommand.SetHandler(async (InvocationContext context) =>
 
 rootCommand.AddCommand(listCommand);
 
+// start command
+var startCommand = new Command("start", "Start a workflow");
+var startIdentifierArgument = new Argument<string>("identifier", "The workflow name or ID to start");
+startCommand.AddArgument(startIdentifierArgument);
+
+startCommand.SetHandler(async (InvocationContext context) =>
+{
+    var identifier = context.ParseResult.GetValueForArgument(startIdentifierArgument);
+    var exitCode = await StartWorkflow(identifier);
+    context.ExitCode = exitCode;
+});
+
+rootCommand.AddCommand(startCommand);
+
+// stop command (for workflows)
+var stopCommand = new Command("stop", "Stop a workflow");
+var stopIdentifierArgument = new Argument<string>("identifier", "The workflow name or ID to stop");
+stopCommand.AddArgument(stopIdentifierArgument);
+
+stopCommand.SetHandler(async (InvocationContext context) =>
+{
+    var identifier = context.ParseResult.GetValueForArgument(stopIdentifierArgument);
+    var exitCode = await StopWorkflowCommand(identifier);
+    context.ExitCode = exitCode;
+});
+
+rootCommand.AddCommand(stopCommand);
+
+// pause command
+var pauseCommand = new Command("pause", "Pause a workflow");
+var pauseIdentifierArgument = new Argument<string>("identifier", "The workflow name or ID to pause");
+pauseCommand.AddArgument(pauseIdentifierArgument);
+
+pauseCommand.SetHandler(async (InvocationContext context) =>
+{
+    var identifier = context.ParseResult.GetValueForArgument(pauseIdentifierArgument);
+    var exitCode = await PauseWorkflow(identifier);
+    context.ExitCode = exitCode;
+});
+
+rootCommand.AddCommand(pauseCommand);
+
+// reload command
+var reloadCommand = new Command("reload", "Hot reload a workflow (re-parses .gflow file)");
+var reloadIdentifierArgument = new Argument<string>("identifier", "The workflow name or ID to reload");
+reloadCommand.AddArgument(reloadIdentifierArgument);
+
+reloadCommand.SetHandler(async (InvocationContext context) =>
+{
+    var identifier = context.ParseResult.GetValueForArgument(reloadIdentifierArgument);
+    var exitCode = await ReloadWorkflow(identifier);
+    context.ExitCode = exitCode;
+});
+
+rootCommand.AddCommand(reloadCommand);
+
 return await rootCommand.InvokeAsync(args);
 
 static async Task<int> ValidateFile(FileInfo file)
@@ -687,6 +743,374 @@ static async Task<int> ListWorkflows()
             }
 
             return 0;
+        }
+        catch (HttpRequestException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+        catch (TaskCanceledException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> StartWorkflow(string identifier)
+{
+    try
+    {
+        // Read daemon config to discover port
+        var stateStore = new FileStateStore();
+        var daemonConfig = await stateStore.LoadDaemonConfigAsync();
+
+        if (daemonConfig == null)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+
+        var (port, _) = daemonConfig.Value;
+
+        using var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        try
+        {
+            // List workflows to find matching one
+            var listResponse = await httpClient.GetAsync($"http://localhost:{port}/api/workflows");
+            if (!listResponse.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine("Failed to list workflows");
+                return 1;
+            }
+
+            var listJson = await listResponse.Content.ReadAsStringAsync();
+            var workflows = JsonSerializer.Deserialize<List<WorkflowInfoResponse>>(listJson, DaemonApi.JsonOptions);
+
+            if (workflows == null || workflows.Count == 0)
+            {
+                Console.WriteLine($"Workflow not found: {identifier}");
+                return 0;
+            }
+
+            // Find by ID (GUID) or by name
+            WorkflowInfoResponse? matchedWorkflow = null;
+
+            if (Guid.TryParse(identifier, out var guidId))
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w => w.Id == guidId);
+            }
+
+            if (matchedWorkflow == null)
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w =>
+                    string.Equals(w.Name, identifier, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (matchedWorkflow == null)
+            {
+                Console.WriteLine($"Workflow not found: {identifier}");
+                return 0;
+            }
+
+            // Start the workflow
+            var response = await httpClient.PostAsync($"http://localhost:{port}/api/workflows/{matchedWorkflow.Id}/start", null);
+            if (response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"Started workflow: {matchedWorkflow.Name}");
+                return 0;
+            }
+
+            // Parse error response
+            var responseJson = await response.Content.ReadAsStringAsync();
+            var errorResponse = JsonSerializer.Deserialize<ErrorResponse>(responseJson, DaemonApi.JsonOptions);
+            Console.Error.WriteLine($"Error: {errorResponse?.Error ?? "Unknown error"}");
+            return 1;
+        }
+        catch (HttpRequestException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+        catch (TaskCanceledException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> StopWorkflowCommand(string identifier)
+{
+    try
+    {
+        // Read daemon config to discover port
+        var stateStore = new FileStateStore();
+        var daemonConfig = await stateStore.LoadDaemonConfigAsync();
+
+        if (daemonConfig == null)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+
+        var (port, _) = daemonConfig.Value;
+
+        using var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        try
+        {
+            // List workflows to find matching one
+            var listResponse = await httpClient.GetAsync($"http://localhost:{port}/api/workflows");
+            if (!listResponse.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine("Failed to list workflows");
+                return 1;
+            }
+
+            var listJson = await listResponse.Content.ReadAsStringAsync();
+            var workflows = JsonSerializer.Deserialize<List<WorkflowInfoResponse>>(listJson, DaemonApi.JsonOptions);
+
+            if (workflows == null || workflows.Count == 0)
+            {
+                Console.WriteLine($"Workflow not found: {identifier}");
+                return 0;
+            }
+
+            // Find by ID (GUID) or by name
+            WorkflowInfoResponse? matchedWorkflow = null;
+
+            if (Guid.TryParse(identifier, out var guidId))
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w => w.Id == guidId);
+            }
+
+            if (matchedWorkflow == null)
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w =>
+                    string.Equals(w.Name, identifier, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (matchedWorkflow == null)
+            {
+                Console.WriteLine($"Workflow not found: {identifier}");
+                return 0;
+            }
+
+            // Stop the workflow
+            var response = await httpClient.PostAsync($"http://localhost:{port}/api/workflows/{matchedWorkflow.Id}/stop", null);
+            if (response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"Stopped workflow: {matchedWorkflow.Name}");
+                return 0;
+            }
+
+            // Parse error response
+            var responseJson = await response.Content.ReadAsStringAsync();
+            var errorResponse = JsonSerializer.Deserialize<ErrorResponse>(responseJson, DaemonApi.JsonOptions);
+            Console.Error.WriteLine($"Error: {errorResponse?.Error ?? "Unknown error"}");
+            return 1;
+        }
+        catch (HttpRequestException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+        catch (TaskCanceledException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> PauseWorkflow(string identifier)
+{
+    try
+    {
+        // Read daemon config to discover port
+        var stateStore = new FileStateStore();
+        var daemonConfig = await stateStore.LoadDaemonConfigAsync();
+
+        if (daemonConfig == null)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+
+        var (port, _) = daemonConfig.Value;
+
+        using var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        try
+        {
+            // List workflows to find matching one
+            var listResponse = await httpClient.GetAsync($"http://localhost:{port}/api/workflows");
+            if (!listResponse.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine("Failed to list workflows");
+                return 1;
+            }
+
+            var listJson = await listResponse.Content.ReadAsStringAsync();
+            var workflows = JsonSerializer.Deserialize<List<WorkflowInfoResponse>>(listJson, DaemonApi.JsonOptions);
+
+            if (workflows == null || workflows.Count == 0)
+            {
+                Console.WriteLine($"Workflow not found: {identifier}");
+                return 0;
+            }
+
+            // Find by ID (GUID) or by name
+            WorkflowInfoResponse? matchedWorkflow = null;
+
+            if (Guid.TryParse(identifier, out var guidId))
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w => w.Id == guidId);
+            }
+
+            if (matchedWorkflow == null)
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w =>
+                    string.Equals(w.Name, identifier, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (matchedWorkflow == null)
+            {
+                Console.WriteLine($"Workflow not found: {identifier}");
+                return 0;
+            }
+
+            // Pause the workflow
+            var response = await httpClient.PostAsync($"http://localhost:{port}/api/workflows/{matchedWorkflow.Id}/pause", null);
+            if (response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"Paused workflow: {matchedWorkflow.Name}");
+                return 0;
+            }
+
+            // Parse error response
+            var responseJson = await response.Content.ReadAsStringAsync();
+            var errorResponse = JsonSerializer.Deserialize<ErrorResponse>(responseJson, DaemonApi.JsonOptions);
+            Console.Error.WriteLine($"Error: {errorResponse?.Error ?? "Unknown error"}");
+            return 1;
+        }
+        catch (HttpRequestException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+        catch (TaskCanceledException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> ReloadWorkflow(string identifier)
+{
+    try
+    {
+        // Read daemon config to discover port
+        var stateStore = new FileStateStore();
+        var daemonConfig = await stateStore.LoadDaemonConfigAsync();
+
+        if (daemonConfig == null)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+
+        var (port, _) = daemonConfig.Value;
+
+        using var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        try
+        {
+            // List workflows to find matching one
+            var listResponse = await httpClient.GetAsync($"http://localhost:{port}/api/workflows");
+            if (!listResponse.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine("Failed to list workflows");
+                return 1;
+            }
+
+            var listJson = await listResponse.Content.ReadAsStringAsync();
+            var workflows = JsonSerializer.Deserialize<List<WorkflowInfoResponse>>(listJson, DaemonApi.JsonOptions);
+
+            if (workflows == null || workflows.Count == 0)
+            {
+                Console.WriteLine($"Workflow not found: {identifier}");
+                return 0;
+            }
+
+            // Find by ID (GUID) or by name
+            WorkflowInfoResponse? matchedWorkflow = null;
+
+            if (Guid.TryParse(identifier, out var guidId))
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w => w.Id == guidId);
+            }
+
+            if (matchedWorkflow == null)
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w =>
+                    string.Equals(w.Name, identifier, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (matchedWorkflow == null)
+            {
+                Console.WriteLine($"Workflow not found: {identifier}");
+                return 0;
+            }
+
+            // Reload the workflow
+            var response = await httpClient.PostAsync($"http://localhost:{port}/api/workflows/{matchedWorkflow.Id}/reload", null);
+            if (response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"Reloaded workflow: {matchedWorkflow.Name}");
+                return 0;
+            }
+
+            // Parse error response
+            var responseJson = await response.Content.ReadAsStringAsync();
+            var errorResponse = JsonSerializer.Deserialize<ErrorResponse>(responseJson, DaemonApi.JsonOptions);
+            Console.Error.WriteLine($"Error: {errorResponse?.Error ?? "Unknown error"}");
+            return 1;
         }
         catch (HttpRequestException)
         {
