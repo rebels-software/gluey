@@ -21,6 +21,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Gluey.Plugins.Inputs;
 
@@ -71,6 +72,7 @@ public sealed class HttpWebhookInput : IInputPlugin
         // Build Kestrel web application with custom URL
         var args = new[] { $"--urls=http://0.0.0.0:{port}" };
         var builder = WebApplication.CreateSlimBuilder(args);
+        builder.Logging.ClearProviders();
 
         _app = builder.Build();
 

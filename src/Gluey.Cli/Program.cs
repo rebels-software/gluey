@@ -20,6 +20,7 @@ using System.Text.Json;
 using Gluey.Cli.Api;
 using Gluey.Parser;
 using Gluey.Runtime;
+using Gluey.Runtime.Logging;
 using Gluey.Runtime.Persistence;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -298,10 +299,8 @@ static async Task<int> RunWorkflow(FileInfo file)
         // Build the host with GlueyHostedService
         var builder = Host.CreateApplicationBuilder();
 
-        // Configure logging
-        builder.Logging.ClearProviders();
-        builder.Logging.AddConsole();
-        builder.Logging.SetMinimumLevel(LogLevel.Information);
+        // Configure logging with clean Gluey formatter
+        builder.Logging.AddGlueyConsole(flow.Name);
 
         // Register services
         builder.Services.AddSingleton(new PluginRegistry());
@@ -373,10 +372,8 @@ static async Task<int> StartDaemon(int port)
         // Configure Kestrel to listen on specified port
         builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
-        // Configure logging
-        builder.Logging.ClearProviders();
-        builder.Logging.AddConsole();
-        builder.Logging.SetMinimumLevel(LogLevel.Information);
+        // Configure logging with clean Gluey formatter
+        builder.Logging.AddGlueyConsole("daemon");
 
         // Register singleton services
         builder.Services.AddSingleton<PluginRegistry>();
