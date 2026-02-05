@@ -332,10 +332,7 @@ static async Task<int> StartDaemon(int port)
         var builder = WebApplication.CreateBuilder();
 
         // Configure Kestrel to listen on specified port
-        builder.WebHost.ConfigureKestrel(options =>
-        {
-            options.ListenAnyIP(port);
-        });
+        builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
         // Configure logging
         builder.Logging.ClearProviders();
@@ -360,10 +357,6 @@ static async Task<int> StartDaemon(int port)
         });
         builder.Services.AddHostedService(sp => sp.GetRequiredService<GlueyDaemonService>());
 
-        // Register WorkflowManager provider for DI in API endpoints
-        builder.Services.AddScoped<WorkflowManager>(sp =>
-            sp.GetRequiredService<GlueyDaemonService>().WorkflowManager);
-
         var app = builder.Build();
 
         // Map API endpoints
@@ -386,8 +379,11 @@ static async Task<int> StartDaemon(int port)
             cts.Cancel();
         };
 
-        // Print startup message
-        Console.WriteLine($"Gluey daemon started on port {port}");
+        // Print startup message only after the server is confirmed listening
+        app.Lifetime.ApplicationStarted.Register(() =>
+        {
+            Console.WriteLine($"Gluey daemon started on port {port}");
+        });
 
         // Run the application
         await app.RunAsync(cts.Token);

@@ -31,6 +31,7 @@ namespace Gluey.Plugins.Inputs;
 public sealed class HttpWebhookInput : IInputPlugin
 {
     private readonly Channel<Message> _channel;
+    private readonly CancellationTokenSource _cts = new();
     private WebApplication? _app;
     private Task? _runTask;
 
@@ -90,14 +91,14 @@ public sealed class HttpWebhookInput : IInputPlugin
                 // Handle JSON content type
                 if (contentType.Contains("application/json", StringComparison.OrdinalIgnoreCase))
                 {
-                    payload = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: cancellationToken);
+                    payload = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: context.RequestAborted);
                 }
                 // Handle binary content type
                 else if (contentType.Contains("application/octet-stream", StringComparison.OrdinalIgnoreCase))
                 {
                     // Read raw bytes and store in metadata
                     using var ms = new MemoryStream();
-                    await context.Request.Body.CopyToAsync(ms, cancellationToken);
+                    await context.Request.Body.CopyToAsync(ms, context.RequestAborted);
                     var bytes = ms.ToArray();
 
                     metadata["raw_bytes"] = Convert.ToBase64String(bytes);
@@ -110,7 +111,7 @@ public sealed class HttpWebhookInput : IInputPlugin
                 {
                     // Unknown content type - treat as text/plain and wrap in JSON
                     using var reader = new StreamReader(context.Request.Body);
-                    var body = await reader.ReadToEndAsync(cancellationToken);
+                    var body = await reader.ReadToEndAsync(context.RequestAborted);
 
                     var jsonObject = new { data = body };
                     payload = JsonDocument.Parse(JsonSerializer.Serialize(jsonObject));
@@ -118,17 +119,17 @@ public sealed class HttpWebhookInput : IInputPlugin
 
                 // Create and enqueue message
                 var message = Message.Create(payload, metadata);
-                await _channel.Writer.WriteAsync(message, cancellationToken);
+                await _channel.Writer.WriteAsync(message, context.RequestAborted);
 
                 // Return 200 OK
                 context.Response.StatusCode = 200;
-                await context.Response.WriteAsync("OK", cancellationToken);
+                await context.Response.WriteAsync("OK", context.RequestAborted);
             }
             catch (Exception)
             {
                 // Return 500 on error
                 context.Response.StatusCode = 500;
-                await context.Response.WriteAsync("Internal Server Error", cancellationToken);
+                await context.Response.WriteAsync("Internal Server Error", context.RequestAborted);
             }
         });
 
@@ -137,7 +138,7 @@ public sealed class HttpWebhookInput : IInputPlugin
         {
             try
             {
-                await _app.RunAsync(cancellationToken);
+                await _app.RunAsync(_cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -147,7 +148,7 @@ public sealed class HttpWebhookInput : IInputPlugin
             {
                 // Server stopped with error (ignore during shutdown)
             }
-        }, cancellationToken);
+        }, _cts.Token);
 
         return Task.CompletedTask;
     }
@@ -168,6 +169,9 @@ public sealed class HttpWebhookInput : IInputPlugin
     /// </summary>
     public async ValueTask DisposeAsync()
     {
+        // Signal cancellation to the web application
+        await _cts.CancelAsync();
+
         // Complete the channel writer
         _channel.Writer.Complete();
 
@@ -190,5 +194,7 @@ public sealed class HttpWebhookInput : IInputPlugin
                 // Ignore exceptions during shutdown
             }
         }
+
+        _cts.Dispose();
     }
 }
