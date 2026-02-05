@@ -99,6 +99,45 @@ daemonStatusCommand.SetHandler(async (InvocationContext context) =>
 daemonCommand.AddCommand(daemonStatusCommand);
 rootCommand.AddCommand(daemonCommand);
 
+// load command
+var loadCommand = new Command("load", "Load a workflow into the daemon");
+var loadFileArgument = new Argument<FileInfo>("file", "The .gflow file to load");
+loadCommand.AddArgument(loadFileArgument);
+
+loadCommand.SetHandler(async (InvocationContext context) =>
+{
+    var file = context.ParseResult.GetValueForArgument(loadFileArgument);
+    var exitCode = await LoadWorkflow(file);
+    context.ExitCode = exitCode;
+});
+
+rootCommand.AddCommand(loadCommand);
+
+// unload command
+var unloadCommand = new Command("unload", "Unload a workflow from the daemon");
+var unloadIdentifierArgument = new Argument<string>("identifier", "The workflow name or ID to unload");
+unloadCommand.AddArgument(unloadIdentifierArgument);
+
+unloadCommand.SetHandler(async (InvocationContext context) =>
+{
+    var identifier = context.ParseResult.GetValueForArgument(unloadIdentifierArgument);
+    var exitCode = await UnloadWorkflow(identifier);
+    context.ExitCode = exitCode;
+});
+
+rootCommand.AddCommand(unloadCommand);
+
+// list command
+var listCommand = new Command("list", "List all workflows loaded in the daemon");
+
+listCommand.SetHandler(async (InvocationContext context) =>
+{
+    var exitCode = await ListWorkflows();
+    context.ExitCode = exitCode;
+});
+
+rootCommand.AddCommand(listCommand);
+
 return await rootCommand.InvokeAsync(args);
 
 static async Task<int> ValidateFile(FileInfo file)
@@ -426,7 +465,276 @@ static async Task<int> DaemonStatus()
     }
 }
 
+static async Task<int> LoadWorkflow(FileInfo file)
+{
+    try
+    {
+        // Check if file exists
+        if (!file.Exists)
+        {
+            Console.Error.WriteLine($"Error: File not found: {file.FullName}");
+            return 1;
+        }
+
+        // Read daemon config to discover port
+        var stateStore = new FileStateStore();
+        var daemonConfig = await stateStore.LoadDaemonConfigAsync();
+
+        if (daemonConfig == null)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+
+        var (port, _) = daemonConfig.Value;
+
+        // Send load request to daemon with absolute path
+        using var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        try
+        {
+            var absolutePath = Path.GetFullPath(file.FullName);
+            var request = new LoadWorkflowRequest(absolutePath);
+            var json = JsonSerializer.Serialize(request, DaemonApi.JsonOptions);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await httpClient.PostAsync($"http://localhost:{port}/api/workflows", content);
+            var responseJson = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = JsonSerializer.Deserialize<LoadWorkflowResponse>(responseJson, DaemonApi.JsonOptions);
+                if (result != null)
+                {
+                    // Get the workflow info to retrieve its name
+                    var infoResponse = await httpClient.GetAsync($"http://localhost:{port}/api/workflows/{result.Id}");
+                    if (infoResponse.IsSuccessStatusCode)
+                    {
+                        var infoJson = await infoResponse.Content.ReadAsStringAsync();
+                        var info = JsonSerializer.Deserialize<WorkflowInfoResponse>(infoJson, DaemonApi.JsonOptions);
+                        if (info != null)
+                        {
+                            Console.WriteLine($"Loaded workflow: {info.Name} ({info.Id})");
+                            return 0;
+                        }
+                    }
+                    Console.WriteLine($"Loaded workflow: ({result.Id})");
+                }
+                return 0;
+            }
+
+            // Parse error response
+            var errorResponse = JsonSerializer.Deserialize<ErrorResponse>(responseJson, DaemonApi.JsonOptions);
+            Console.Error.WriteLine(errorResponse?.Error ?? "Unknown error");
+            return 1;
+        }
+        catch (HttpRequestException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+        catch (TaskCanceledException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> UnloadWorkflow(string identifier)
+{
+    try
+    {
+        // Read daemon config to discover port
+        var stateStore = new FileStateStore();
+        var daemonConfig = await stateStore.LoadDaemonConfigAsync();
+
+        if (daemonConfig == null)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+
+        var (port, _) = daemonConfig.Value;
+
+        using var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        try
+        {
+            // List workflows to find matching one
+            var listResponse = await httpClient.GetAsync($"http://localhost:{port}/api/workflows");
+            if (!listResponse.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine("Failed to list workflows");
+                return 1;
+            }
+
+            var listJson = await listResponse.Content.ReadAsStringAsync();
+            var workflows = JsonSerializer.Deserialize<List<WorkflowInfoResponse>>(listJson, DaemonApi.JsonOptions);
+
+            if (workflows == null || workflows.Count == 0)
+            {
+                Console.WriteLine($"Workflow not found: {identifier}");
+                return 0;
+            }
+
+            // Find by ID (GUID) or by name
+            WorkflowInfoResponse? matchedWorkflow = null;
+
+            if (Guid.TryParse(identifier, out var guidId))
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w => w.Id == guidId);
+            }
+
+            if (matchedWorkflow == null)
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w =>
+                    string.Equals(w.Name, identifier, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (matchedWorkflow == null)
+            {
+                Console.WriteLine($"Workflow not found: {identifier}");
+                return 0;
+            }
+
+            // Unload the workflow
+            var deleteResponse = await httpClient.DeleteAsync($"http://localhost:{port}/api/workflows/{matchedWorkflow.Id}");
+            if (deleteResponse.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"Unloaded workflow: {matchedWorkflow.Name}");
+                return 0;
+            }
+
+            Console.Error.WriteLine($"Failed to unload workflow: {matchedWorkflow.Name}");
+            return 1;
+        }
+        catch (HttpRequestException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+        catch (TaskCanceledException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> ListWorkflows()
+{
+    try
+    {
+        // Read daemon config to discover port
+        var stateStore = new FileStateStore();
+        var daemonConfig = await stateStore.LoadDaemonConfigAsync();
+
+        if (daemonConfig == null)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+
+        var (port, _) = daemonConfig.Value;
+
+        using var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        try
+        {
+            var response = await httpClient.GetAsync($"http://localhost:{port}/api/workflows");
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine("Failed to list workflows");
+                return 1;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var workflows = JsonSerializer.Deserialize<List<WorkflowInfoResponse>>(json, DaemonApi.JsonOptions);
+
+            if (workflows == null || workflows.Count == 0)
+            {
+                Console.WriteLine("No workflows loaded");
+                return 0;
+            }
+
+            // Print table header
+            Console.WriteLine($"{"ID",-36} {"NAME",-21} {"STATUS",-10}");
+
+            // Print workflows
+            foreach (var workflow in workflows)
+            {
+                Console.WriteLine($"{workflow.Id,-36} {workflow.Name,-21} {workflow.Status,-10}");
+            }
+
+            return 0;
+        }
+        catch (HttpRequestException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+        catch (TaskCanceledException)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
 /// <summary>
 /// Response DTO for daemon health check.
 /// </summary>
 sealed record HealthResponse(string Status, int Workflows, string Uptime);
+
+/// <summary>
+/// Response DTO for workflow load operation.
+/// </summary>
+sealed record LoadWorkflowResponse(Guid Id);
+
+/// <summary>
+/// Request DTO for loading a workflow.
+/// </summary>
+sealed record LoadWorkflowRequest(string FilePath);
+
+/// <summary>
+/// Response DTO for workflow information.
+/// </summary>
+sealed record WorkflowInfoResponse(
+    Guid Id,
+    string Name,
+    string Version,
+    string FilePath,
+    string Status,
+    DateTimeOffset? StartedAt,
+    string? LastError,
+    long MessageCount);
+
+/// <summary>
+/// Response DTO for error messages.
+/// </summary>
+sealed record ErrorResponse(string? Error);
