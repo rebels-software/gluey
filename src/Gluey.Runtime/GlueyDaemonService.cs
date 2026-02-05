@@ -171,9 +171,15 @@ public sealed class GlueyDaemonService : BackgroundService
                     continue;
                 }
 
-                // Re-load the workflow into WorkflowManager
+                // Re-load the workflow into WorkflowManager (generates a new ID)
                 var id = await _workflowManager.LoadAsync(workflowInfo.FilePath, cancellationToken);
                 _logger.LogDebug("Loaded workflow '{Name}' from {FilePath}", workflowInfo.Name, workflowInfo.FilePath);
+
+                // Clean up old persisted state (old ID) to prevent duplicates on next restart
+                if (id != workflowInfo.Id)
+                {
+                    await _stateStore.DeleteWorkflowStateAsync(workflowInfo.Id, cancellationToken);
+                }
 
                 // Track if workflow was Active and should be restarted
                 if (_restartActiveWorkflows && workflowInfo.Status == WorkflowStatus.Active)
