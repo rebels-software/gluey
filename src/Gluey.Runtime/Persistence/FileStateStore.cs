@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System.Diagnostics;
+using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Gluey.Core.Abstractions;
@@ -256,6 +258,56 @@ public sealed class FileStateStore : IStateStore
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Checks whether the daemon is alive, stale (dead process), or not configured.
+    /// </summary>
+    public async Task<DaemonLiveness> CheckDaemonAsync(CancellationToken cancellationToken = default)
+    {
+        var config = await LoadDaemonConfigAsync(cancellationToken).ConfigureAwait(false);
+        if (config == null)
+        {
+            return new DaemonLiveness(DaemonStatus.NotConfigured, 0, 0);
+        }
+
+        var (port, pid) = config.Value;
+
+        // Check if the PID is still alive
+        bool processAlive;
+        try
+        {
+            var process = Process.GetProcessById(pid);
+            processAlive = !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            // Process does not exist
+            processAlive = false;
+        }
+
+        if (!processAlive)
+        {
+            return new DaemonLiveness(DaemonStatus.Stale, port, pid);
+        }
+
+        // PID is alive — verify it's actually a Gluey daemon via health check
+        try
+        {
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            var response = await httpClient.GetAsync($"http://localhost:{port}/api/health", cancellationToken)
+                .ConfigureAwait(false);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return new DaemonLiveness(DaemonStatus.Alive, port, pid);
+            }
+        }
+        catch (HttpRequestException) { }
+        catch (TaskCanceledException) { }
+
+        // PID exists but health check failed — treat as stale
+        return new DaemonLiveness(DaemonStatus.Stale, port, pid);
+    }
+
     private static string GetDefaultStateDirectory()
     {
         // Check for environment variable first
@@ -330,3 +382,18 @@ public sealed class FileStateStore : IStateStore
     /// </summary>
     private sealed record DaemonConfig(int Port, int Pid);
 }
+
+/// <summary>
+/// Daemon liveness status.
+/// </summary>
+public enum DaemonStatus
+{
+    NotConfigured,
+    Stale,
+    Alive
+}
+
+/// <summary>
+/// Result of a daemon liveness check.
+/// </summary>
+public sealed record DaemonLiveness(DaemonStatus Status, int Port, int Pid);

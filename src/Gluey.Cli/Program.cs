@@ -14,6 +14,7 @@
 
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Text.Json;
 using Gluey.Cli.Api;
@@ -65,12 +66,19 @@ var portOption = new Option<int>(
     name: "--port",
     getDefaultValue: () => GlueyDaemonService.DefaultPort,
     description: "The port to listen on");
+var backgroundOption = new Option<bool>(
+    ["--background", "-b"],
+    "Start daemon in background and return immediately");
 daemonStartCommand.AddOption(portOption);
+daemonStartCommand.AddOption(backgroundOption);
 
 daemonStartCommand.SetHandler(async (InvocationContext context) =>
 {
     var port = context.ParseResult.GetValueForOption(portOption);
-    var exitCode = await StartDaemon(port);
+    var background = context.ParseResult.GetValueForOption(backgroundOption);
+    var exitCode = background
+        ? await StartDaemonBackground(port)
+        : await StartDaemon(port);
     context.ExitCode = exitCode;
 });
 
@@ -328,6 +336,21 @@ static async Task<int> StartDaemon(int port)
 {
     try
     {
+        // Check if daemon is already running
+        var stateStore = new FileStateStore();
+        var liveness = await stateStore.CheckDaemonAsync();
+
+        if (liveness.Status == Gluey.Runtime.Persistence.DaemonStatus.Alive)
+        {
+            Console.Error.WriteLine($"Daemon already running on port {liveness.Port} (pid {liveness.Pid})");
+            return 1;
+        }
+
+        if (liveness.Status == Gluey.Runtime.Persistence.DaemonStatus.Stale)
+        {
+            await stateStore.DeleteDaemonConfigAsync();
+        }
+
         // Create the web application builder
         var builder = WebApplication.CreateBuilder();
 
@@ -389,6 +412,86 @@ static async Task<int> StartDaemon(int port)
         await app.RunAsync(cts.Token);
 
         return 0;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> StartDaemonBackground(int port)
+{
+    try
+    {
+        // Check if daemon is already running
+        var stateStore = new FileStateStore();
+        var liveness = await stateStore.CheckDaemonAsync();
+
+        if (liveness.Status == Gluey.Runtime.Persistence.DaemonStatus.Alive)
+        {
+            Console.Error.WriteLine($"Daemon already running on port {liveness.Port} (pid {liveness.Pid})");
+            return 1;
+        }
+
+        if (liveness.Status == Gluey.Runtime.Persistence.DaemonStatus.Stale)
+        {
+            await stateStore.DeleteDaemonConfigAsync();
+        }
+
+        // Resolve the current executable path
+        var exePath = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exePath))
+        {
+            Console.Error.WriteLine("Error: Could not determine executable path");
+            return 1;
+        }
+
+        // Spawn a new process: same binary with "daemon start --port {port}" (no --background to avoid recursion)
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = exePath,
+            Arguments = $"daemon start --port {port}",
+            UseShellExecute = false,
+            RedirectStandardOutput = false,
+            RedirectStandardError = false,
+            CreateNoWindow = true
+        };
+
+        var process = Process.Start(startInfo);
+        if (process == null)
+        {
+            Console.Error.WriteLine("Error: Failed to start daemon process");
+            return 1;
+        }
+
+        // Poll health endpoint to confirm daemon started (up to ~5s)
+        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        for (var i = 0; i < 10; i++)
+        {
+            await Task.Delay(500);
+
+            if (process.HasExited)
+            {
+                Console.Error.WriteLine("Error: Daemon process exited unexpectedly");
+                return 1;
+            }
+
+            try
+            {
+                var response = await httpClient.GetAsync($"http://localhost:{port}/api/health");
+                if (response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"Daemon started on port {port} (pid {process.Id})");
+                    return 0;
+                }
+            }
+            catch (HttpRequestException) { }
+            catch (TaskCanceledException) { }
+        }
+
+        Console.Error.WriteLine("Error: Daemon did not respond within 5 seconds");
+        return 1;
     }
     catch (Exception ex)
     {
@@ -760,6 +863,105 @@ static async Task<int> ListWorkflows()
 
 static async Task<int> StartWorkflow(string identifier)
 {
+    // Detect .gflow file: if it ends with .gflow AND file exists, use smart start
+    if (identifier.EndsWith(".gflow", StringComparison.OrdinalIgnoreCase) && File.Exists(identifier))
+    {
+        return await StartWorkflowFromFile(identifier);
+    }
+
+    // Otherwise, start an already-loaded workflow by name/ID
+    return await StartWorkflowByIdentifier(identifier);
+}
+
+static async Task<int> StartWorkflowFromFile(string filePath)
+{
+    try
+    {
+        var absolutePath = Path.GetFullPath(filePath);
+        var port = GlueyDaemonService.DefaultPort;
+
+        // Ensure daemon is running
+        var stateStore = new FileStateStore();
+        var liveness = await stateStore.CheckDaemonAsync();
+
+        if (liveness.Status == Gluey.Runtime.Persistence.DaemonStatus.Stale)
+        {
+            await stateStore.DeleteDaemonConfigAsync();
+            liveness = new DaemonLiveness(Gluey.Runtime.Persistence.DaemonStatus.NotConfigured, 0, 0);
+        }
+
+        if (liveness.Status == Gluey.Runtime.Persistence.DaemonStatus.NotConfigured)
+        {
+            // Auto-start daemon in background
+            var daemonResult = await StartDaemonBackground(port);
+            if (daemonResult != 0)
+            {
+                return daemonResult;
+            }
+        }
+        else
+        {
+            port = liveness.Port;
+        }
+
+        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+
+        // Load workflow via POST /api/workflows
+        var loadRequest = new LoadWorkflowRequest(absolutePath);
+        var loadJson = JsonSerializer.Serialize(loadRequest, DaemonApi.JsonOptions);
+        var loadContent = new StringContent(loadJson, System.Text.Encoding.UTF8, "application/json");
+        var loadResponse = await httpClient.PostAsync($"http://localhost:{port}/api/workflows", loadContent);
+        var loadResponseJson = await loadResponse.Content.ReadAsStringAsync();
+
+        if (!loadResponse.IsSuccessStatusCode)
+        {
+            var errorResponse = JsonSerializer.Deserialize<ErrorResponse>(loadResponseJson, DaemonApi.JsonOptions);
+            Console.Error.WriteLine($"Error: {errorResponse?.Error ?? "Failed to load workflow"}");
+            return 1;
+        }
+
+        var loadResult = JsonSerializer.Deserialize<LoadWorkflowResponse>(loadResponseJson, DaemonApi.JsonOptions);
+        if (loadResult == null)
+        {
+            Console.Error.WriteLine("Error: Failed to parse load response");
+            return 1;
+        }
+
+        // Start workflow via POST /api/workflows/{id}/start
+        var startResponse = await httpClient.PostAsync($"http://localhost:{port}/api/workflows/{loadResult.Id}/start", null);
+        if (!startResponse.IsSuccessStatusCode)
+        {
+            var startResponseJson = await startResponse.Content.ReadAsStringAsync();
+            var errorResponse = JsonSerializer.Deserialize<ErrorResponse>(startResponseJson, DaemonApi.JsonOptions);
+            Console.Error.WriteLine($"Error: {errorResponse?.Error ?? "Failed to start workflow"}");
+            return 1;
+        }
+
+        // Get workflow name for display
+        var infoResponse = await httpClient.GetAsync($"http://localhost:{port}/api/workflows/{loadResult.Id}");
+        var name = loadResult.Id.ToString();
+        if (infoResponse.IsSuccessStatusCode)
+        {
+            var infoJson = await infoResponse.Content.ReadAsStringAsync();
+            var info = JsonSerializer.Deserialize<WorkflowInfoResponse>(infoJson, DaemonApi.JsonOptions);
+            if (info != null)
+            {
+                name = info.Name;
+            }
+        }
+
+        Console.WriteLine($"Started workflow: {name} ({loadResult.Id})");
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> StartWorkflowByIdentifier(string identifier)
+{
     try
     {
         // Read daemon config to discover port
@@ -768,8 +970,8 @@ static async Task<int> StartWorkflow(string identifier)
 
         if (daemonConfig == null)
         {
-            Console.WriteLine("Daemon is not running");
-            return 0;
+            Console.Error.WriteLine("Daemon is not running. Start it with: gluey daemon start");
+            return 1;
         }
 
         var (port, _) = daemonConfig.Value;
@@ -794,8 +996,8 @@ static async Task<int> StartWorkflow(string identifier)
 
             if (workflows == null || workflows.Count == 0)
             {
-                Console.WriteLine($"Workflow not found: {identifier}");
-                return 0;
+                Console.Error.WriteLine($"Workflow not found: {identifier}");
+                return 1;
             }
 
             // Find by ID (GUID) or by name
@@ -814,8 +1016,8 @@ static async Task<int> StartWorkflow(string identifier)
 
             if (matchedWorkflow == null)
             {
-                Console.WriteLine($"Workflow not found: {identifier}");
-                return 0;
+                Console.Error.WriteLine($"Workflow not found: {identifier}");
+                return 1;
             }
 
             // Start the workflow
@@ -834,13 +1036,13 @@ static async Task<int> StartWorkflow(string identifier)
         }
         catch (HttpRequestException)
         {
-            Console.WriteLine("Daemon is not running");
-            return 0;
+            Console.Error.WriteLine("Daemon is not running. Start it with: gluey daemon start");
+            return 1;
         }
         catch (TaskCanceledException)
         {
-            Console.WriteLine("Daemon is not running");
-            return 0;
+            Console.Error.WriteLine("Daemon is not running. Start it with: gluey daemon start");
+            return 1;
         }
     }
     catch (Exception ex)
