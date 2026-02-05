@@ -241,6 +241,127 @@ public sealed class WorkflowManager : IAsyncDisposable
     }
 
     /// <summary>
+    /// Pauses a workflow. Signals cancellation and waits for drain (5s timeout).
+    /// Workflow remains loaded with plugins initialized and can be resumed with StartAsync.
+    /// </summary>
+    /// <param name="id">The workflow ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task PauseAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (!_workflows.TryGetValue(id, out var instance))
+        {
+            throw new InvalidOperationException($"Workflow {id} not found");
+        }
+
+        if (instance.Info.Status != WorkflowStatus.Active)
+        {
+            throw new InvalidOperationException(
+                $"Cannot pause workflow '{instance.Info.Name}' ({id}) because it is not running. " +
+                $"Current status: {instance.Info.Status}");
+        }
+
+        _logger.LogInformation("Pausing workflow '{Name}' ({Id})", instance.Info.Name, id);
+
+        if (instance.Cts != null && instance.RunTask != null)
+        {
+            // Signal cancellation
+            await instance.Cts.CancelAsync();
+
+            // Wait for drain with timeout
+            using var timeoutCts = new CancellationTokenSource(_drainTimeout);
+            using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, timeoutCts.Token);
+
+            try
+            {
+                await instance.RunTask.WaitAsync(combinedCts.Token);
+                _logger.LogDebug("Workflow '{Name}' drained successfully", instance.Info.Name);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    "Workflow '{Name}' drain timed out after {Timeout}s",
+                    instance.Info.Name,
+                    _drainTimeout.TotalSeconds);
+            }
+
+            // Dispose the CTS
+            instance.Cts.Dispose();
+            instance.Cts = null;
+            instance.RunTask = null;
+        }
+
+        // Update status to Paused (plugins remain initialized)
+        instance.Info = instance.Info.WithStatus(WorkflowStatus.Paused);
+
+        _logger.LogInformation("Workflow '{Name}' ({Id}) paused", instance.Info.Name, id);
+    }
+
+    /// <summary>
+    /// Reloads a workflow by re-parsing its .gflow file.
+    /// If the workflow was running, it will be stopped, reloaded, and restarted.
+    /// If stopped or paused, only the Flow definition is updated.
+    /// </summary>
+    /// <param name="id">The workflow ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task ReloadAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (!_workflows.TryGetValue(id, out var instance))
+        {
+            throw new InvalidOperationException($"Workflow {id} not found");
+        }
+
+        var wasActive = instance.Info.Status == WorkflowStatus.Active;
+        var filePath = instance.Info.FilePath;
+
+        _logger.LogInformation("Reloading workflow '{Name}' ({Id}) from {FilePath}",
+            instance.Info.Name, id, filePath);
+
+        try
+        {
+            // Stop the workflow if it's running
+            if (wasActive)
+            {
+                await StopAsync(id, cancellationToken);
+            }
+
+            // Dispose current plugins so they get re-initialized on next start
+            await DisposePluginsAsync(instance);
+
+            // Re-parse the flow file
+            var flow = ParseFlowFile(filePath);
+            _logger.LogDebug("Re-parsed flow '{Name}' v{Version}", flow.Name, flow.Version);
+
+            // Update the instance with new flow
+            instance.Flow = flow;
+            instance.Info = instance.Info with
+            {
+                Name = flow.Name,
+                Version = flow.Version
+            };
+
+            _logger.LogInformation("Workflow '{Name}' ({Id}) reloaded successfully",
+                instance.Info.Name, id);
+
+            // Restart if it was active before
+            if (wasActive)
+            {
+                await StartAsync(id, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reload workflow '{Name}' ({Id})",
+                instance.Info.Name, id);
+            instance.Info = instance.Info.WithError($"Reload failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Lists all loaded workflows.
     /// </summary>
     /// <returns>All WorkflowInfo entries.</returns>
@@ -455,6 +576,41 @@ public sealed class WorkflowManager : IAsyncDisposable
         }
 
         return config;
+    }
+
+    /// <summary>
+    /// Disposes only the plugins for a workflow instance (for reload).
+    /// Does not dispose the CTS or touch the RunTask.
+    /// </summary>
+    private static async ValueTask DisposePluginsAsync(WorkflowInstance instance)
+    {
+        if (instance.Input != null)
+        {
+            await instance.Input.DisposeAsync();
+            instance.Input = null;
+        }
+
+        if (instance.Transforms != null)
+        {
+            instance.Transforms.Clear();
+            instance.Transforms = null;
+        }
+
+        if (instance.Output != null)
+        {
+            await instance.Output.DisposeAsync();
+            instance.Output = null;
+        }
+
+        if (instance.RouteOutputs != null)
+        {
+            foreach (var routePipeline in instance.RouteOutputs.Values)
+            {
+                await routePipeline.Output.DisposeAsync();
+            }
+            instance.RouteOutputs.Clear();
+            instance.RouteOutputs = null;
+        }
     }
 
     /// <summary>
