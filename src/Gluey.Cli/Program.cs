@@ -202,6 +202,22 @@ reloadCommand.SetHandler(async (InvocationContext context) =>
 
 rootCommand.AddCommand(reloadCommand);
 
+// prune command
+var pruneCommand = new Command("prune", "Clear all persisted workflow state");
+var forceOption = new Option<bool>(
+    ["--force", "-f"],
+    "Skip confirmation prompt");
+pruneCommand.AddOption(forceOption);
+
+pruneCommand.SetHandler(async (InvocationContext context) =>
+{
+    var force = context.ParseResult.GetValueForOption(forceOption);
+    var exitCode = await PruneState(force);
+    context.ExitCode = exitCode;
+});
+
+rootCommand.AddCommand(pruneCommand);
+
 return await rootCommand.InvokeAsync(args);
 
 static async Task<int> ValidateFile(FileInfo file)
@@ -618,6 +634,44 @@ static async Task<int> DaemonStatus()
         Console.Error.WriteLine($"Error: {ex.Message}");
         return 1;
     }
+}
+
+static Task<int> PruneState(bool force)
+{
+    var stateStore = new FileStateStore();
+    var stateDir = stateStore.StateDirectory;
+
+    if (!Directory.Exists(stateDir))
+    {
+        Console.WriteLine("No state directory found");
+        return Task.FromResult(0);
+    }
+
+    var files = Directory.GetFiles(stateDir);
+    if (files.Length == 0)
+    {
+        Console.WriteLine("No state files to clean up");
+        return Task.FromResult(0);
+    }
+
+    if (!force)
+    {
+        Console.Write($"This will delete {files.Length} state files from {stateDir}. Continue? [y/N] ");
+        var answer = Console.ReadLine()?.Trim();
+        if (!string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine("Aborted");
+            return Task.FromResult(0);
+        }
+    }
+
+    foreach (var file in files)
+    {
+        File.Delete(file);
+    }
+
+    Console.WriteLine($"Cleared {files.Length} state files from {stateDir}");
+    return Task.FromResult(0);
 }
 
 static async Task<int> LoadWorkflow(FileInfo file)
