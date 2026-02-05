@@ -34,7 +34,7 @@ esac
 
 echo "Building Gluey CLI for $RID..."
 rm -rf "$PUBLISH_DIR"
-dotnet publish "$PROJECT" -c Release -r "$RID" --self-contained -o "$PUBLISH_DIR"
+dotnet publish "$PROJECT" -c Release -r "$RID" -o "$PUBLISH_DIR"
 
 echo "Installing to $INSTALL_DIR..."
 sudo cp "$PUBLISH_DIR/Gluey.Cli" "$INSTALL_DIR/$EXECUTABLE_NAME"
