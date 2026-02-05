@@ -1,0 +1,7 @@
+flow test-run v1.0 {
+  from http("/webhook") {
+    port: 8080
+  }
+
+  | console()
+}
