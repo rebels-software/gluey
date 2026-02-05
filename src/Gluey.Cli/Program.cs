@@ -14,6 +14,8 @@
 
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Net.Http;
+using System.Text.Json;
 using Gluey.Cli.Api;
 using Gluey.Parser;
 using Gluey.Runtime;
@@ -73,6 +75,28 @@ daemonStartCommand.SetHandler(async (InvocationContext context) =>
 });
 
 daemonCommand.AddCommand(daemonStartCommand);
+
+// daemon stop subcommand
+var daemonStopCommand = new Command("stop", "Stop the Gluey daemon");
+
+daemonStopCommand.SetHandler(async (InvocationContext context) =>
+{
+    var exitCode = await StopDaemon();
+    context.ExitCode = exitCode;
+});
+
+daemonCommand.AddCommand(daemonStopCommand);
+
+// daemon status subcommand
+var daemonStatusCommand = new Command("status", "Check the Gluey daemon status");
+
+daemonStatusCommand.SetHandler(async (InvocationContext context) =>
+{
+    var exitCode = await DaemonStatus();
+    context.ExitCode = exitCode;
+});
+
+daemonCommand.AddCommand(daemonStatusCommand);
 rootCommand.AddCommand(daemonCommand);
 
 return await rootCommand.InvokeAsync(args);
@@ -281,3 +305,128 @@ static async Task<int> StartDaemon(int port)
         return 1;
     }
 }
+
+static async Task<int> StopDaemon()
+{
+    try
+    {
+        // Read daemon config to discover port
+        var stateStore = new FileStateStore();
+        var daemonConfig = await stateStore.LoadDaemonConfigAsync();
+
+        if (daemonConfig == null)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+
+        var (port, _) = daemonConfig.Value;
+
+        // Send shutdown request to daemon
+        using var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        try
+        {
+            var response = await httpClient.PostAsync($"http://localhost:{port}/api/shutdown", null);
+            if (response.IsSuccessStatusCode)
+            {
+                Console.WriteLine("Daemon stopped");
+                return 0;
+            }
+
+            Console.Error.WriteLine($"Error: Daemon returned status {response.StatusCode}");
+            return 1;
+        }
+        catch (HttpRequestException)
+        {
+            // Connection failed - daemon might already be stopped
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+        catch (TaskCanceledException)
+        {
+            // Timeout - daemon might already be stopped
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> DaemonStatus()
+{
+    try
+    {
+        // Read daemon config to discover port and pid
+        var stateStore = new FileStateStore();
+        var daemonConfig = await stateStore.LoadDaemonConfigAsync();
+
+        if (daemonConfig == null)
+        {
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+
+        var (port, pid) = daemonConfig.Value;
+
+        // Try to get health from daemon
+        using var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        try
+        {
+            var response = await httpClient.GetAsync($"http://localhost:{port}/api/health");
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                var health = JsonSerializer.Deserialize<HealthResponse>(json, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                });
+
+                if (health != null)
+                {
+                    Console.WriteLine($"Daemon running on port {port} (pid {pid})");
+                    Console.WriteLine($"  Status: {health.Status}");
+                    Console.WriteLine($"  Workflows: {health.Workflows}");
+                    Console.WriteLine($"  Uptime: {health.Uptime}");
+                    return 0;
+                }
+            }
+
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+        catch (HttpRequestException)
+        {
+            // Connection failed - daemon is not running
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+        catch (TaskCanceledException)
+        {
+            // Timeout - daemon is not running
+            Console.WriteLine("Daemon is not running");
+            return 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+/// <summary>
+/// Response DTO for daemon health check.
+/// </summary>
+sealed record HealthResponse(string Status, int Workflows, string Uptime);
