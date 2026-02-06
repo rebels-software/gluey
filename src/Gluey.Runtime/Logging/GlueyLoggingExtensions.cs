@@ -24,13 +24,15 @@ public static class GlueyLoggingExtensions
 {
     /// <summary>
     /// Adds the Gluey console formatter with clean Docker-style log output.
-    /// Suppresses Microsoft.* and System.* logs (Warning+ only) and allows
-    /// all Gluey.* logs at Information level.
+    /// By default, suppresses Microsoft.* and System.* logs (Warning+ only) and allows
+    /// all Gluey.* logs at Information level. When verbose is true, all logs at
+    /// Information level and above are shown.
     /// </summary>
     /// <param name="builder">The logging builder.</param>
     /// <param name="workflowName">Optional workflow name to display in logs. Defaults to "gluey".</param>
+    /// <param name="verbose">When true, show full .NET framework logs at Information level.</param>
     /// <returns>The logging builder for chaining.</returns>
-    public static ILoggingBuilder AddGlueyConsole(this ILoggingBuilder builder, string? workflowName = null)
+    public static ILoggingBuilder AddGlueyConsole(this ILoggingBuilder builder, string? workflowName = null, bool verbose = false)
     {
         builder.ClearProviders();
 
@@ -47,11 +49,19 @@ public static class GlueyLoggingExtensions
             }
         });
 
-        // Default minimum is Warning — suppresses all framework logs
-        builder.SetMinimumLevel(LogLevel.Warning);
+        if (verbose)
+        {
+            // Show all logs at Information level and above
+            builder.SetMinimumLevel(LogLevel.Information);
+        }
+        else
+        {
+            // Default minimum is Warning — suppresses all framework logs
+            builder.SetMinimumLevel(LogLevel.Warning);
 
-        // Only Gluey.* loggers get through at Information level
-        builder.AddFilter("Gluey", LogLevel.Information);
+            // Only Gluey.* loggers get through at Information level
+            builder.AddFilter("Gluey", LogLevel.Information);
+        }
 
         return builder;
     }

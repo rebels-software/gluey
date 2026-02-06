@@ -47,12 +47,16 @@ rootCommand.AddCommand(validateCommand);
 // run command
 var runCommand = new Command("run", "Run a .gflow workflow as a daemon");
 var runFileArgument = new Argument<FileInfo>("file", "The .gflow file to run");
+var runVerboseOption = new Option<bool>("--verbose", "Show full .NET framework logs");
+runVerboseOption.AddAlias("-v");
 runCommand.AddArgument(runFileArgument);
+runCommand.AddOption(runVerboseOption);
 
 runCommand.SetHandler(async (InvocationContext context) =>
 {
     var file = context.ParseResult.GetValueForArgument(runFileArgument);
-    var exitCode = await RunWorkflow(file);
+    var verbose = context.ParseResult.GetValueForOption(runVerboseOption);
+    var exitCode = await RunWorkflow(file, verbose);
     context.ExitCode = exitCode;
 });
 
@@ -70,16 +74,20 @@ var portOption = new Option<int>(
 var backgroundOption = new Option<bool>(
     ["--background", "-b"],
     "Start daemon in background and return immediately");
+var daemonVerboseOption = new Option<bool>("--verbose", "Show full .NET framework logs");
+daemonVerboseOption.AddAlias("-v");
 daemonStartCommand.AddOption(portOption);
 daemonStartCommand.AddOption(backgroundOption);
+daemonStartCommand.AddOption(daemonVerboseOption);
 
 daemonStartCommand.SetHandler(async (InvocationContext context) =>
 {
     var port = context.ParseResult.GetValueForOption(portOption);
     var background = context.ParseResult.GetValueForOption(backgroundOption);
+    var verbose = context.ParseResult.GetValueForOption(daemonVerboseOption);
     var exitCode = background
         ? await StartDaemonBackground(port)
-        : await StartDaemon(port);
+        : await StartDaemon(port, verbose);
     context.ExitCode = exitCode;
 });
 
@@ -276,7 +284,7 @@ static async Task<int> ValidateFile(FileInfo file)
     }
 }
 
-static async Task<int> RunWorkflow(FileInfo file)
+static async Task<int> RunWorkflow(FileInfo file, bool verbose = false)
 {
     if (!file.Exists)
     {
@@ -300,7 +308,7 @@ static async Task<int> RunWorkflow(FileInfo file)
         var builder = Host.CreateApplicationBuilder();
 
         // Configure logging with clean Gluey formatter
-        builder.Logging.AddGlueyConsole(flow.Name);
+        builder.Logging.AddGlueyConsole(flow.Name, verbose);
 
         // Register services
         builder.Services.AddSingleton(new PluginRegistry());
@@ -347,7 +355,7 @@ static async Task<int> RunWorkflow(FileInfo file)
     }
 }
 
-static async Task<int> StartDaemon(int port)
+static async Task<int> StartDaemon(int port, bool verbose = false)
 {
     try
     {
@@ -373,7 +381,7 @@ static async Task<int> StartDaemon(int port)
         builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
         // Configure logging with clean Gluey formatter
-        builder.Logging.AddGlueyConsole("daemon");
+        builder.Logging.AddGlueyConsole("daemon", verbose);
 
         // Register singleton services
         builder.Services.AddSingleton<PluginRegistry>();
