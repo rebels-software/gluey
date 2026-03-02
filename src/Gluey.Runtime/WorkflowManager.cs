@@ -17,6 +17,7 @@ using System.Text.Json;
 using Gluey.Core.Abstractions;
 using Gluey.Core.Models;
 using Gluey.Parser;
+using Gluey.Runtime.Logging;
 using Microsoft.Extensions.Logging;
 
 namespace Gluey.Runtime;
@@ -29,6 +30,7 @@ public sealed class WorkflowManager : IAsyncDisposable
 {
     private readonly PluginRegistry _pluginRegistry;
     private readonly ILogger<WorkflowManager> _logger;
+    private readonly LogBuffer? _logBuffer;
     private readonly ConcurrentDictionary<Guid, WorkflowInstance> _workflows = new();
     private readonly TimeSpan _drainTimeout = TimeSpan.FromSeconds(5);
     private bool _disposed;
@@ -38,10 +40,12 @@ public sealed class WorkflowManager : IAsyncDisposable
     /// </summary>
     /// <param name="pluginRegistry">Registry for creating plugin instances.</param>
     /// <param name="logger">Logger for workflow lifecycle events.</param>
-    public WorkflowManager(PluginRegistry pluginRegistry, ILogger<WorkflowManager> logger)
+    /// <param name="logBuffer">Optional shared log buffer for per-workflow log capture.</param>
+    public WorkflowManager(PluginRegistry pluginRegistry, ILogger<WorkflowManager> logger, LogBuffer? logBuffer = null)
     {
         _pluginRegistry = pluginRegistry ?? throw new ArgumentNullException(nameof(pluginRegistry));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _logBuffer = logBuffer;
     }
 
     /// <summary>
@@ -77,8 +81,8 @@ public sealed class WorkflowManager : IAsyncDisposable
             throw new InvalidOperationException($"Workflow with ID {info.Id} already exists");
         }
 
-        _logger.LogInformation("Loaded workflow '{Name}' v{Version} with ID {Id}",
-            flow.Name, flow.Version, info.Id);
+        LogWorkflow(flow.Name, LogLevel.Information,
+            $"Loaded workflow '{flow.Name}' v{flow.Version} with ID {info.Id}");
 
         return await Task.FromResult(info.Id);
     }
@@ -98,7 +102,8 @@ public sealed class WorkflowManager : IAsyncDisposable
             return;
         }
 
-        _logger.LogInformation("Unloading workflow '{Name}' ({Id})", instance.Info.Name, id);
+        LogWorkflow(instance.Info.Name, LogLevel.Information,
+            $"Unloading workflow '{instance.Info.Name}' ({id})");
 
         // Stop if running
         if (instance.Info.Status == WorkflowStatus.Active)
@@ -111,7 +116,8 @@ public sealed class WorkflowManager : IAsyncDisposable
         {
             // Dispose resources
             await DisposeInstanceAsync(removed);
-            _logger.LogInformation("Unloaded workflow '{Name}' ({Id})", removed.Info.Name, id);
+            LogWorkflow(removed.Info.Name, LogLevel.Information,
+                $"Unloaded workflow '{removed.Info.Name}' ({id})");
         }
     }
 
@@ -131,11 +137,13 @@ public sealed class WorkflowManager : IAsyncDisposable
 
         if (instance.Info.Status == WorkflowStatus.Active)
         {
-            _logger.LogWarning("Workflow '{Name}' ({Id}) is already running", instance.Info.Name, id);
+            LogWorkflow(instance.Info.Name, LogLevel.Warning,
+                $"Workflow '{instance.Info.Name}' ({id}) is already running");
             return;
         }
 
-        _logger.LogInformation("Starting workflow '{Name}' ({Id})", instance.Info.Name, id);
+        LogWorkflow(instance.Info.Name, LogLevel.Information,
+            $"Starting workflow '{instance.Info.Name}' ({id})");
 
         try
         {
@@ -143,7 +151,8 @@ public sealed class WorkflowManager : IAsyncDisposable
             if (instance.Input == null)
             {
                 await InitializePluginsAsync(instance, cancellationToken);
-                _logger.LogDebug("Plugins initialized for workflow '{Name}'", instance.Info.Name);
+                LogWorkflow(instance.Info.Name, LogLevel.Debug,
+                    $"Plugins initialized for workflow '{instance.Info.Name}'");
             }
 
             // Create cancellation token source for this workflow
@@ -173,11 +182,13 @@ public sealed class WorkflowManager : IAsyncDisposable
             // Update status to Active
             instance.Info = instance.Info.WithStarted();
 
-            _logger.LogInformation("Workflow '{Name}' ({Id}) started", instance.Info.Name, id);
+            LogWorkflow(instance.Info.Name, LogLevel.Information,
+                $"Workflow '{instance.Info.Name}' ({id}) started");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start workflow '{Name}' ({Id})", instance.Info.Name, id);
+            LogWorkflow(instance.Info.Name, LogLevel.Error,
+                $"Failed to start workflow '{instance.Info.Name}' ({id}): {ex.Message}");
             instance.Info = instance.Info.WithError(ex.Message);
             throw;
         }
@@ -199,11 +210,13 @@ public sealed class WorkflowManager : IAsyncDisposable
 
         if (instance.Info.Status != WorkflowStatus.Active)
         {
-            _logger.LogWarning("Workflow '{Name}' ({Id}) is not running", instance.Info.Name, id);
+            LogWorkflow(instance.Info.Name, LogLevel.Warning,
+                $"Workflow '{instance.Info.Name}' ({id}) is not running");
             return;
         }
 
-        _logger.LogInformation("Stopping workflow '{Name}' ({Id})", instance.Info.Name, id);
+        LogWorkflow(instance.Info.Name, LogLevel.Information,
+            $"Stopping workflow '{instance.Info.Name}' ({id})");
 
         if (instance.Cts != null && instance.RunTask != null)
         {
@@ -218,14 +231,13 @@ public sealed class WorkflowManager : IAsyncDisposable
             try
             {
                 await instance.RunTask.WaitAsync(combinedCts.Token);
-                _logger.LogDebug("Workflow '{Name}' drained successfully", instance.Info.Name);
+                LogWorkflow(instance.Info.Name, LogLevel.Debug,
+                    $"Workflow '{instance.Info.Name}' drained successfully");
             }
             catch (OperationCanceledException)
             {
-                _logger.LogWarning(
-                    "Workflow '{Name}' drain timed out after {Timeout}s",
-                    instance.Info.Name,
-                    _drainTimeout.TotalSeconds);
+                LogWorkflow(instance.Info.Name, LogLevel.Warning,
+                    $"Workflow '{instance.Info.Name}' drain timed out after {_drainTimeout.TotalSeconds}s");
             }
 
             // Dispose the CTS
@@ -237,7 +249,8 @@ public sealed class WorkflowManager : IAsyncDisposable
         // Update status to Stopped
         instance.Info = instance.Info.WithStatus(WorkflowStatus.Stopped);
 
-        _logger.LogInformation("Workflow '{Name}' ({Id}) stopped", instance.Info.Name, id);
+        LogWorkflow(instance.Info.Name, LogLevel.Information,
+            $"Workflow '{instance.Info.Name}' ({id}) stopped");
     }
 
     /// <summary>
@@ -262,7 +275,8 @@ public sealed class WorkflowManager : IAsyncDisposable
                 $"Current status: {instance.Info.Status}");
         }
 
-        _logger.LogInformation("Pausing workflow '{Name}' ({Id})", instance.Info.Name, id);
+        LogWorkflow(instance.Info.Name, LogLevel.Information,
+            $"Pausing workflow '{instance.Info.Name}' ({id})");
 
         if (instance.Cts != null && instance.RunTask != null)
         {
@@ -277,14 +291,13 @@ public sealed class WorkflowManager : IAsyncDisposable
             try
             {
                 await instance.RunTask.WaitAsync(combinedCts.Token);
-                _logger.LogDebug("Workflow '{Name}' drained successfully", instance.Info.Name);
+                LogWorkflow(instance.Info.Name, LogLevel.Debug,
+                    $"Workflow '{instance.Info.Name}' drained successfully");
             }
             catch (OperationCanceledException)
             {
-                _logger.LogWarning(
-                    "Workflow '{Name}' drain timed out after {Timeout}s",
-                    instance.Info.Name,
-                    _drainTimeout.TotalSeconds);
+                LogWorkflow(instance.Info.Name, LogLevel.Warning,
+                    $"Workflow '{instance.Info.Name}' drain timed out after {_drainTimeout.TotalSeconds}s");
             }
 
             // Dispose the CTS
@@ -296,7 +309,8 @@ public sealed class WorkflowManager : IAsyncDisposable
         // Update status to Paused (plugins remain initialized)
         instance.Info = instance.Info.WithStatus(WorkflowStatus.Paused);
 
-        _logger.LogInformation("Workflow '{Name}' ({Id}) paused", instance.Info.Name, id);
+        LogWorkflow(instance.Info.Name, LogLevel.Information,
+            $"Workflow '{instance.Info.Name}' ({id}) paused");
     }
 
     /// <summary>
@@ -318,8 +332,8 @@ public sealed class WorkflowManager : IAsyncDisposable
         var wasActive = instance.Info.Status == WorkflowStatus.Active;
         var filePath = instance.Info.FilePath;
 
-        _logger.LogInformation("Reloading workflow '{Name}' ({Id}) from {FilePath}",
-            instance.Info.Name, id, filePath);
+        LogWorkflow(instance.Info.Name, LogLevel.Information,
+            $"Reloading workflow '{instance.Info.Name}' ({id}) from {filePath}");
 
         try
         {
@@ -334,7 +348,8 @@ public sealed class WorkflowManager : IAsyncDisposable
 
             // Re-parse the flow file
             var flow = ParseFlowFile(filePath);
-            _logger.LogDebug("Re-parsed flow '{Name}' v{Version}", flow.Name, flow.Version);
+            LogWorkflow(instance.Info.Name, LogLevel.Debug,
+                $"Re-parsed flow '{flow.Name}' v{flow.Version}");
 
             // Update the instance with new flow
             instance.Flow = flow;
@@ -344,8 +359,8 @@ public sealed class WorkflowManager : IAsyncDisposable
                 Version = flow.Version
             };
 
-            _logger.LogInformation("Workflow '{Name}' ({Id}) reloaded successfully",
-                instance.Info.Name, id);
+            LogWorkflow(instance.Info.Name, LogLevel.Information,
+                $"Workflow '{instance.Info.Name}' ({id}) reloaded successfully");
 
             // Restart if it was active before
             if (wasActive)
@@ -355,8 +370,8 @@ public sealed class WorkflowManager : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to reload workflow '{Name}' ({Id})",
-                instance.Info.Name, id);
+            LogWorkflow(instance.Info.Name, LogLevel.Error,
+                $"Failed to reload workflow '{instance.Info.Name}' ({id}): {ex.Message}");
             instance.Info = instance.Info.WithError($"Reload failed: {ex.Message}");
         }
     }
@@ -637,6 +652,22 @@ public sealed class WorkflowManager : IAsyncDisposable
                 await routePipeline.Output.DisposeAsync();
             }
         }
+    }
+
+    /// <summary>
+    /// Writes a log entry to the per-workflow LogBuffer so it can be retrieved via the daemon API.
+    /// Also writes to the standard logger. This is a no-op if no LogBuffer was provided.
+    /// </summary>
+    /// <param name="workflowName">The workflow name to key the log entry under.</param>
+    /// <param name="level">The log level.</param>
+    /// <param name="message">The log message.</param>
+    private void LogWorkflow(string workflowName, LogLevel level, string message)
+    {
+        // Always log to the standard logger
+        _logger.Log(level, "{Message}", message);
+
+        // Also write to the per-workflow buffer for API retrieval
+        _logBuffer?.Add(new LogEntry(DateTimeOffset.UtcNow, workflowName, level, message));
     }
 
     /// <summary>

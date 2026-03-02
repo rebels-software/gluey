@@ -418,7 +418,8 @@ static async Task<int> StartDaemon(int port, bool verbose = false)
         {
             var registry = sp.GetRequiredService<PluginRegistry>();
             var logger = sp.GetRequiredService<ILogger<WorkflowManager>>();
-            return new WorkflowManager(registry, logger);
+            var buffer = sp.GetRequiredService<LogBuffer>();
+            return new WorkflowManager(registry, logger, buffer);
         });
         builder.Services.AddSingleton<GlueyDaemonService>(sp =>
         {
