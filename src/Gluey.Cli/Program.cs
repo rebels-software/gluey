@@ -17,6 +17,7 @@ using System.CommandLine.Invocation;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Gluey.Cli.Api;
 using Gluey.Parser;
 using Gluey.Runtime;
@@ -227,6 +228,29 @@ pruneCommand.SetHandler(async (InvocationContext context) =>
 
 rootCommand.AddCommand(pruneCommand);
 
+// logs command
+var logsCommand = new Command("logs", "View workflow logs from the daemon");
+var logsIdentifierArgument = new Argument<string>("identifier", "The workflow name or ID");
+var logsFollowOption = new Option<bool>(["--follow", "-f"], "Stream logs continuously");
+var logsLinesOption = new Option<int>(
+    ["--lines", "-n"],
+    getDefaultValue: () => 100,
+    description: "Number of recent log lines to show");
+logsCommand.AddArgument(logsIdentifierArgument);
+logsCommand.AddOption(logsFollowOption);
+logsCommand.AddOption(logsLinesOption);
+
+logsCommand.SetHandler(async (InvocationContext context) =>
+{
+    var identifier = context.ParseResult.GetValueForArgument(logsIdentifierArgument);
+    var follow = context.ParseResult.GetValueForOption(logsFollowOption);
+    var lines = context.ParseResult.GetValueForOption(logsLinesOption);
+    var exitCode = await ViewLogs(identifier, follow, lines);
+    context.ExitCode = exitCode;
+});
+
+rootCommand.AddCommand(logsCommand);
+
 return await rootCommand.InvokeAsync(args);
 
 static async Task<int> ValidateFile(FileInfo file)
@@ -380,10 +404,14 @@ static async Task<int> StartDaemon(int port, bool verbose = false)
         // Configure Kestrel to listen on specified port
         builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
-        // Configure logging with clean Gluey formatter
-        builder.Logging.AddGlueyConsole("daemon", verbose);
+        // Create shared LogBuffer singleton for in-memory log capture
+        var logBuffer = new LogBuffer();
+
+        // Configure logging with clean Gluey formatter + buffered provider
+        builder.Logging.AddGlueyConsole("daemon", verbose, logBuffer);
 
         // Register singleton services
+        builder.Services.AddSingleton(logBuffer);
         builder.Services.AddSingleton<PluginRegistry>();
         builder.Services.AddSingleton<FileStateStore>();
         builder.Services.AddSingleton<WorkflowManager>(sp =>
@@ -1387,6 +1415,178 @@ static async Task<int> ReloadWorkflow(string identifier)
     }
 }
 
+static async Task<int> ViewLogs(string identifier, bool follow, int lines)
+{
+    try
+    {
+        // Read daemon config to discover port
+        var stateStore = new FileStateStore();
+        var daemonConfig = await stateStore.LoadDaemonConfigAsync();
+
+        if (daemonConfig == null)
+        {
+            Console.Error.WriteLine("Daemon is not running. Start it with: gluey daemon start");
+            return 1;
+        }
+
+        var (port, _) = daemonConfig.Value;
+
+        using var httpClient = new HttpClient
+        {
+            Timeout = follow ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(5)
+        };
+
+        try
+        {
+            // List workflows to find matching one
+            var listResponse = await httpClient.GetAsync($"http://localhost:{port}/api/workflows");
+            if (!listResponse.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine("Failed to list workflows");
+                return 1;
+            }
+
+            var listJson = await listResponse.Content.ReadAsStringAsync();
+            var workflows = JsonSerializer.Deserialize<List<WorkflowInfoResponse>>(listJson, DaemonApi.JsonOptions);
+
+            if (workflows == null || workflows.Count == 0)
+            {
+                Console.Error.WriteLine($"Workflow not found: {identifier}");
+                return 1;
+            }
+
+            // Find by ID (GUID) or by name
+            WorkflowInfoResponse? matchedWorkflow = null;
+
+            if (Guid.TryParse(identifier, out var guidId))
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w => w.Id == guidId);
+            }
+
+            if (matchedWorkflow == null)
+            {
+                matchedWorkflow = workflows.FirstOrDefault(w =>
+                    string.Equals(w.Name, identifier, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (matchedWorkflow == null)
+            {
+                Console.Error.WriteLine($"Workflow not found: {identifier}");
+                return 1;
+            }
+
+            // Fetch recent logs
+            var logsResponse = await httpClient.GetAsync(
+                $"http://localhost:{port}/api/workflows/{matchedWorkflow.Id}/logs?lines={lines}");
+
+            if (!logsResponse.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine("Failed to fetch logs");
+                return 1;
+            }
+
+            var logsJson = await logsResponse.Content.ReadAsStringAsync();
+            var logEntries = JsonSerializer.Deserialize<List<LogEntryResponse>>(logsJson, DaemonApi.JsonOptions);
+
+            if (logEntries != null)
+            {
+                foreach (var entry in logEntries)
+                {
+                    PrintLogEntry(entry);
+                }
+            }
+
+            // If --follow, open SSE stream
+            if (follow)
+            {
+                using var cts = new CancellationTokenSource();
+                Console.CancelKeyPress += (_, e) =>
+                {
+                    e.Cancel = true;
+                    cts.Cancel();
+                };
+
+                try
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Get,
+                        $"http://localhost:{port}/api/workflows/{matchedWorkflow.Id}/logs/stream");
+                    var streamResponse = await httpClient.SendAsync(
+                        request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+
+                    if (!streamResponse.IsSuccessStatusCode)
+                    {
+                        Console.Error.WriteLine("Failed to open log stream");
+                        return 1;
+                    }
+
+                    using var stream = await streamResponse.Content.ReadAsStreamAsync(cts.Token);
+                    using var reader = new StreamReader(stream);
+
+                    while (!cts.IsCancellationRequested)
+                    {
+                        var line = await reader.ReadLineAsync(cts.Token);
+                        if (line == null)
+                            break;
+
+                        // SSE format: "data: {json}"
+                        if (line.StartsWith("data: ", StringComparison.Ordinal))
+                        {
+                            var json = line["data: ".Length..];
+                            var entry = JsonSerializer.Deserialize<LogEntryResponse>(json, DaemonApi.JsonOptions);
+                            if (entry != null)
+                            {
+                                PrintLogEntry(entry);
+                            }
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Ctrl+C — expected
+                }
+            }
+
+            return 0;
+        }
+        catch (HttpRequestException)
+        {
+            Console.Error.WriteLine("Daemon is not running. Start it with: gluey daemon start");
+            return 1;
+        }
+        catch (TaskCanceledException)
+        {
+            Console.Error.WriteLine("Daemon is not running. Start it with: gluey daemon start");
+            return 1;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
+static void PrintLogEntry(LogEntryResponse entry)
+{
+    var timestamp = entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+    var level = FormatLogLevel(entry.Level);
+    Console.WriteLine($"{timestamp} | {level,-5} | {entry.Message}");
+}
+
+static string FormatLogLevel(string level)
+{
+    return level.ToUpperInvariant() switch
+    {
+        "TRACE" => "TRACE",
+        "DEBUG" => "DEBUG",
+        "INFORMATION" => "INFO",
+        "WARNING" => "WARN",
+        "ERROR" => "ERROR",
+        "CRITICAL" => "CRIT",
+        _ => level.ToUpperInvariant()
+    };
+}
+
 /// <summary>
 /// Response DTO for daemon health check.
 /// </summary>
@@ -1419,3 +1619,12 @@ sealed record WorkflowInfoResponse(
 /// Response DTO for error messages.
 /// </summary>
 sealed record ErrorResponse(string? Error);
+
+/// <summary>
+/// Response DTO for a log entry.
+/// </summary>
+sealed record LogEntryResponse(
+    DateTimeOffset Timestamp,
+    string WorkflowName,
+    string Level,
+    string Message);

@@ -31,8 +31,9 @@ public static class GlueyLoggingExtensions
     /// <param name="builder">The logging builder.</param>
     /// <param name="workflowName">Optional workflow name to display in logs. Defaults to "gluey".</param>
     /// <param name="verbose">When true, show full .NET framework logs at Information level.</param>
+    /// <param name="logBuffer">Optional LogBuffer to capture logs in memory for API retrieval.</param>
     /// <returns>The logging builder for chaining.</returns>
-    public static ILoggingBuilder AddGlueyConsole(this ILoggingBuilder builder, string? workflowName = null, bool verbose = false)
+    public static ILoggingBuilder AddGlueyConsole(this ILoggingBuilder builder, string? workflowName = null, bool verbose = false, LogBuffer? logBuffer = null)
     {
         builder.ClearProviders();
 
@@ -48,6 +49,12 @@ public static class GlueyLoggingExtensions
                 options.WorkflowName = workflowName;
             }
         });
+
+        // Add buffered log provider for in-memory capture (used by daemon API)
+        if (logBuffer is not null && workflowName is not null)
+        {
+            builder.AddProvider(new BufferedLogProvider(logBuffer, workflowName));
+        }
 
         if (verbose)
         {

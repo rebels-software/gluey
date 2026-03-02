@@ -16,6 +16,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Gluey.Core.Models;
 using Gluey.Runtime;
+using Gluey.Runtime.Logging;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
@@ -78,6 +79,10 @@ public static class DaemonApi
         group.MapPost("/{id:guid}/stop", StopWorkflow);
         group.MapPost("/{id:guid}/pause", PauseWorkflow);
         group.MapPost("/{id:guid}/reload", ReloadWorkflow);
+
+        // Log endpoints
+        group.MapGet("/{id:guid}/logs", GetWorkflowLogs);
+        group.MapGet("/{id:guid}/logs/stream", StreamWorkflowLogs);
 
         return app;
     }
@@ -299,6 +304,72 @@ public static class DaemonApi
         lifetime.StopApplication();
 
         return Results.Ok(new { message = "Shutdown initiated" });
+    }
+
+    /// <summary>
+    /// GET /api/workflows/{id}/logs - Get recent log entries for a workflow.
+    /// </summary>
+    private static IResult GetWorkflowLogs(
+        Guid id,
+        WorkflowManager manager,
+        LogBuffer logBuffer,
+        HttpContext context)
+    {
+        var workflow = manager.Get(id);
+        if (workflow == null)
+        {
+            return Results.NotFound(new { error = $"Workflow {id} not found" });
+        }
+
+        // Parse optional ?lines= query parameter (default 100)
+        var linesParam = context.Request.Query["lines"].FirstOrDefault();
+        var lines = 100;
+        if (linesParam is not null && int.TryParse(linesParam, out var parsedLines) && parsedLines > 0)
+        {
+            lines = parsedLines;
+        }
+
+        var logs = logBuffer.GetLogs(workflow.Name, lines);
+        return Results.Json(logs, JsonOptions);
+    }
+
+    /// <summary>
+    /// GET /api/workflows/{id}/logs/stream - Stream log entries via Server-Sent Events.
+    /// </summary>
+    private static async Task StreamWorkflowLogs(
+        Guid id,
+        WorkflowManager manager,
+        LogBuffer logBuffer,
+        HttpContext context)
+    {
+        var workflow = manager.Get(id);
+        if (workflow == null)
+        {
+            context.Response.StatusCode = 404;
+            await context.Response.WriteAsJsonAsync(new { error = $"Workflow {id} not found" }, JsonOptions);
+            return;
+        }
+
+        // Set SSE headers
+        context.Response.Headers["Content-Type"] = "text/event-stream";
+        context.Response.Headers["Cache-Control"] = "no-cache";
+        context.Response.Headers["Connection"] = "keep-alive";
+
+        var ct = context.RequestAborted;
+
+        try
+        {
+            await foreach (var entry in logBuffer.Subscribe(workflow.Name, ct))
+            {
+                var json = JsonSerializer.Serialize(entry, JsonOptions);
+                await context.Response.WriteAsync($"data: {json}\n\n", ct);
+                await context.Response.Body.FlushAsync(ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected — expected
+        }
     }
 
     /// <summary>
