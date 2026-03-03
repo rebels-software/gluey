@@ -1,0 +1,19 @@
+// Test: Fan-out to multiple outputs
+// Verifies that a single message is delivered to multiple console outputs
+// via the route -> [output1(), output2()] fan-out syntax.
+//
+// To test:
+//   dotnet run --project src/Gluey.Cli -- validate samples/test-fanout.gflow
+
+flow fanout-test v1.0 {
+  from http("/webhook") {
+    port: 8090
+  }
+
+  | json.parse(payload)
+  | route {
+      all: *
+    }
+
+  all -> [console(), console()]
+}
