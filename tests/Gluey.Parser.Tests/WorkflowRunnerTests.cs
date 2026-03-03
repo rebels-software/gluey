@@ -525,6 +525,266 @@ public class WorkflowRunnerTests
     }
 
     #endregion
+
+    #region Fan-Out Behavior Tests (US-067)
+
+    // --- AC1: Single message sent to multiple outputs ---
+
+    /// <summary>
+    /// AC1: Verifies that a single message fans out to exactly 2 outputs (minimum fan-out edge case).
+    /// </summary>
+    [Fact]
+    public async Task FanOutDeliversMessageToTwoOutputs()
+    {
+        // Arrange - route with 2 outputs (minimum fan-out)
+        var metadata = new Dictionary<string, string> { { "_route", "duo" } };
+        var inputMessage = CreateTestMessage(metadata: metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var output1 = new MockOutputPlugin();
+        var output2 = new MockOutputPlugin();
+
+        IReadOnlyList<IOutputPlugin> outputs = new List<IOutputPlugin> { output1, output2 };
+        var routePipeline = new RoutePipeline(new List<ITransformPlugin>(), outputs);
+        var routeOutputs = new Dictionary<string, RoutePipeline> { { "duo", routePipeline } };
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - both outputs received the message
+        Assert.Single(output1.WrittenMessages);
+        Assert.Single(output2.WrittenMessages);
+    }
+
+    /// <summary>
+    /// AC1: Verifies that multiple messages each fan out to all outputs in a route pipeline.
+    /// </summary>
+    [Fact]
+    public async Task FanOutDeliversMultipleMessagesToAllOutputs()
+    {
+        // Arrange - 3 messages routed to "multi" with 2 outputs
+        var messages = Enumerable.Range(0, 3)
+            .Select(i => CreateTestMessage(
+                $$$"""{"index": {{{i}}}}""",
+                new Dictionary<string, string> { { "_route", "multi" } }))
+            .ToArray();
+
+        var input = new MockInputPlugin(messages);
+        var output1 = new MockOutputPlugin();
+        var output2 = new MockOutputPlugin();
+
+        IReadOnlyList<IOutputPlugin> outputs = new List<IOutputPlugin> { output1, output2 };
+        var routePipeline = new RoutePipeline(new List<ITransformPlugin>(), outputs);
+        var routeOutputs = new Dictionary<string, RoutePipeline> { { "multi", routePipeline } };
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - both outputs received all 3 messages
+        Assert.Equal(3, output1.WrittenMessages.Count);
+        Assert.Equal(3, output2.WrittenMessages.Count);
+    }
+
+    // --- AC2: Error in one output does not affect others ---
+
+    /// <summary>
+    /// AC2: When the first output throws, the remaining outputs still receive the message.
+    /// </summary>
+    [Fact]
+    public async Task FanOutFirstOutputFailsOthersStillReceive()
+    {
+        // Arrange - first output fails, second and third are healthy
+        var metadata = new Dictionary<string, string> { { "_route", "err-first" } };
+        var inputMessage = CreateTestMessage(metadata: metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var failingOutput = new ThrowingOutputPlugin(new InvalidOperationException("First output exploded"));
+        var goodOutput2 = new MockOutputPlugin();
+        var goodOutput3 = new MockOutputPlugin();
+
+        IReadOnlyList<IOutputPlugin> outputs = new List<IOutputPlugin> { failingOutput, goodOutput2, goodOutput3 };
+        var routePipeline = new RoutePipeline(new List<ITransformPlugin>(), outputs);
+        var routeOutputs = new Dictionary<string, RoutePipeline> { { "err-first", routePipeline } };
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act - should not throw
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - healthy outputs still received the message
+        Assert.Single(goodOutput2.WrittenMessages);
+        Assert.Single(goodOutput3.WrittenMessages);
+    }
+
+    /// <summary>
+    /// AC2: When the middle output throws, the first and last outputs still receive the message.
+    /// </summary>
+    [Fact]
+    public async Task FanOutMiddleOutputFailsOthersStillReceive()
+    {
+        // Arrange - middle output fails, first and last are healthy
+        var metadata = new Dictionary<string, string> { { "_route", "err-mid" } };
+        var inputMessage = CreateTestMessage(metadata: metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var goodOutput1 = new MockOutputPlugin();
+        var failingOutput = new ThrowingOutputPlugin(new IOException("Middle output failed"));
+        var goodOutput3 = new MockOutputPlugin();
+
+        IReadOnlyList<IOutputPlugin> outputs = new List<IOutputPlugin> { goodOutput1, failingOutput, goodOutput3 };
+        var routePipeline = new RoutePipeline(new List<ITransformPlugin>(), outputs);
+        var routeOutputs = new Dictionary<string, RoutePipeline> { { "err-mid", routePipeline } };
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert
+        Assert.Single(goodOutput1.WrittenMessages);
+        Assert.Single(goodOutput3.WrittenMessages);
+    }
+
+    /// <summary>
+    /// AC2: When multiple outputs fail, the runner does not crash and healthy outputs still receive.
+    /// </summary>
+    [Fact]
+    public async Task FanOutMultipleOutputsFailRunnerDoesNotCrash()
+    {
+        // Arrange - 2 out of 3 outputs fail
+        var metadata = new Dictionary<string, string> { { "_route", "err-multi" } };
+        var inputMessage = CreateTestMessage(metadata: metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var failingOutput1 = new ThrowingOutputPlugin(new InvalidOperationException("Failure 1"));
+        var failingOutput2 = new ThrowingOutputPlugin(new TimeoutException("Failure 2"));
+        var goodOutput = new MockOutputPlugin();
+
+        IReadOnlyList<IOutputPlugin> outputs = new List<IOutputPlugin> { failingOutput1, failingOutput2, goodOutput };
+        var routePipeline = new RoutePipeline(new List<ITransformPlugin>(), outputs);
+        var routeOutputs = new Dictionary<string, RoutePipeline> { { "err-multi", routePipeline } };
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act - should not throw despite 2 of 3 outputs failing
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - the surviving output received the message
+        Assert.Single(goodOutput.WrittenMessages);
+    }
+
+    // --- AC3: All outputs receive same message content ---
+
+    /// <summary>
+    /// AC3: All fan-out outputs receive messages with identical payload bytes.
+    /// </summary>
+    [Fact]
+    public async Task FanOutAllOutputsReceiveIdenticalPayload()
+    {
+        // Arrange
+        var metadata = new Dictionary<string, string> { { "_route", "payload-check" } };
+        var inputMessage = CreateTestMessage("""{"sensor": "temp", "value": 23.5}""", metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var output1 = new MockOutputPlugin();
+        var output2 = new MockOutputPlugin();
+        var output3 = new MockOutputPlugin();
+
+        IReadOnlyList<IOutputPlugin> outputs = new List<IOutputPlugin> { output1, output2, output3 };
+        var routePipeline = new RoutePipeline(new List<ITransformPlugin>(), outputs);
+        var routeOutputs = new Dictionary<string, RoutePipeline> { { "payload-check", routePipeline } };
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - all outputs received identical payload (compare via GetRawText())
+        var expectedPayload = inputMessage.Payload.RootElement.GetRawText();
+        Assert.Equal(expectedPayload, output1.WrittenMessages[0].Payload.RootElement.GetRawText());
+        Assert.Equal(expectedPayload, output2.WrittenMessages[0].Payload.RootElement.GetRawText());
+        Assert.Equal(expectedPayload, output3.WrittenMessages[0].Payload.RootElement.GetRawText());
+    }
+
+    /// <summary>
+    /// AC3: All fan-out outputs receive messages with identical metadata.
+    /// </summary>
+    [Fact]
+    public async Task FanOutAllOutputsReceiveIdenticalMetadata()
+    {
+        // Arrange - message with multiple metadata entries
+        var metadata = new Dictionary<string, string>
+        {
+            { "_route", "meta-check" },
+            { "source", "sensor-01" },
+            { "region", "eu-west" }
+        };
+        var inputMessage = CreateTestMessage("""{"value": 99}""", metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var output1 = new MockOutputPlugin();
+        var output2 = new MockOutputPlugin();
+
+        IReadOnlyList<IOutputPlugin> outputs = new List<IOutputPlugin> { output1, output2 };
+        var routePipeline = new RoutePipeline(new List<ITransformPlugin>(), outputs);
+        var routeOutputs = new Dictionary<string, RoutePipeline> { { "meta-check", routePipeline } };
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - both outputs received identical metadata
+        var msg1 = output1.WrittenMessages[0];
+        var msg2 = output2.WrittenMessages[0];
+
+        Assert.Equal(msg1.Metadata.Count, msg2.Metadata.Count);
+        foreach (var kvp in msg1.Metadata)
+        {
+            Assert.True(msg2.Metadata.ContainsKey(kvp.Key), $"Missing metadata key: {kvp.Key}");
+            Assert.Equal(kvp.Value, msg2.Metadata[kvp.Key]);
+        }
+    }
+
+    // --- AC4: Parallel execution (timing verification) ---
+
+    /// <summary>
+    /// AC4: Verifies that fan-out outputs execute in parallel using Task.WhenAll.
+    /// Three outputs each with 100ms delay should complete in ~100-150ms if parallel,
+    /// not ~300ms+ if sequential.
+    /// </summary>
+    [Fact]
+    public async Task FanOutExecutesOutputsInParallel()
+    {
+        // Arrange - 3 delayed outputs with 100ms delay each
+        var metadata = new Dictionary<string, string> { { "_route", "parallel" } };
+        var inputMessage = CreateTestMessage(metadata: metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var delay = TimeSpan.FromMilliseconds(100);
+        var delayedOutput1 = new DelayedOutputPlugin(delay);
+        var delayedOutput2 = new DelayedOutputPlugin(delay);
+        var delayedOutput3 = new DelayedOutputPlugin(delay);
+
+        IReadOnlyList<IOutputPlugin> outputs = new List<IOutputPlugin>
+            { delayedOutput1, delayedOutput2, delayedOutput3 };
+        var routePipeline = new RoutePipeline(new List<ITransformPlugin>(), outputs);
+        var routeOutputs = new Dictionary<string, RoutePipeline> { { "parallel", routePipeline } };
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act - measure elapsed time
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await runner.RunAsync(CancellationToken.None);
+        stopwatch.Stop();
+
+        // Assert - if parallel: ~100ms. If sequential: ~300ms. Use 250ms as threshold.
+        Assert.True(stopwatch.ElapsedMilliseconds < 250,
+            $"Fan-out took {stopwatch.ElapsedMilliseconds}ms, expected < 250ms for parallel execution.");
+
+        // Also verify all outputs received the message
+        Assert.Single(delayedOutput1.WrittenMessages);
+        Assert.Single(delayedOutput2.WrittenMessages);
+        Assert.Single(delayedOutput3.WrittenMessages);
+    }
+
+    #endregion
 }
 
 /// <summary>
@@ -547,6 +807,35 @@ internal sealed class ThrowingOutputPlugin : IOutputPlugin
 
     public Task WriteAsync(Message message, CancellationToken cancellationToken = default)
         => Task.FromException(_exception);
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+/// <summary>
+/// Mock output plugin that introduces a configurable delay in WriteAsync.
+/// Used to verify parallel fan-out execution via timing assertions.
+/// </summary>
+internal sealed class DelayedOutputPlugin : IOutputPlugin
+{
+    private readonly TimeSpan _delay;
+
+    public List<Message> WrittenMessages { get; } = new();
+
+    public DelayedOutputPlugin(TimeSpan delay)
+    {
+        _delay = delay;
+    }
+
+    public string Type => "mock-delayed-output";
+
+    public Task InitializeAsync(IReadOnlyDictionary<string, JsonElement> config, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public async Task WriteAsync(Message message, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(_delay, cancellationToken);
+        WrittenMessages.Add(message);
+    }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
