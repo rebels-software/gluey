@@ -515,6 +515,27 @@ normal -> sql("Host=localhost;Database=iot") {
   }
 ```
 
+### Multiple Outputs (Fan-out)
+
+A route destination can deliver to multiple outputs simultaneously using array syntax `[output1(), output2()]`. All outputs receive the same message in parallel.
+
+```gflow
+// Fan-out to two outputs
+all -> [console(), http("https://api.example.com/events")]
+
+// Fan-out with config blocks
+broadcast -> [
+  console(),
+  mqtt("mqtt://broker:1883") { topic: "processed/data" },
+  http("https://webhook.site/test")
+]
+```
+
+**Behavior:**
+- All outputs execute in parallel via `Task.WhenAll`
+- An error in one output does not prevent others from receiving the message
+- Each output receives an identical copy of the message
+
 ### Complete Example
 
 ```gflow
@@ -546,6 +567,28 @@ flow industrial-pipeline v1.0 {
       temperature: "temperature"
     }
   }
+}
+```
+
+### Fan-out Example
+
+```gflow
+flow fanout-pattern v1.0 {
+  from http("/webhook") {
+    port: 8080
+  }
+
+  | json.parse(payload)
+  | transform {
+      device_id: device_id
+      temperature: temperature
+      processed_at: now()
+    }
+  | route {
+      all: *
+    }
+
+  all -> [console(), http("https://api.example.com/events")]
 }
 ```
 

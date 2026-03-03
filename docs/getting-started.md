@@ -129,6 +129,7 @@ Gluey includes sample workflows to help you learn:
 | `03-binary-sensor.gflow` | HTTP → binary decode → transform → console |
 | `04-industrial-pipeline.gflow` | MQTT → transform → route → MQTT/SQL |
 | `05-advanced-protocol.gflow` | MQTT → binary decode → route → SQL |
+| `06-fanout-pattern.gflow` | HTTP → transform → fan-out to console + HTTP |
 
 Run a sample:
 

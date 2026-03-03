@@ -503,6 +503,32 @@ flow alert-router v1.0 {
 }
 ```
 
+**Fan-out (Multiple Outputs)**
+
+A route destination can send to multiple outputs in parallel using array syntax:
+
+```gflow
+flow broadcast v1.0 {
+  from http("/webhook")
+  | json.parse(payload)
+  | transform {
+      device_id: device_id
+      temperature: temperature
+      processed_at: now()
+    }
+  | route {
+      all: *
+    }
+
+  all -> [console(), http("https://api.example.com/events")]
+}
+```
+
+Fan-out behavior:
+- All outputs execute in parallel
+- An error in one output does not block others
+- Each output receives the same message
+
 ---
 
 ## Output Plugins
