@@ -268,16 +268,17 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
     private async Task<RoutePipeline> CreateRoutePipelineAsync(Route route, CancellationToken cancellationToken)
     {
         var transforms = new List<ITransformPlugin>();
-        IOutputPlugin? output = null;
+        var outputs = new List<IOutputPlugin>();
 
         foreach (var step in route.DestinationSteps)
         {
             if (_pluginRegistry.IsOutputPlugin(step.Type))
             {
-                // This is the output plugin for this route
-                output = _pluginRegistry.CreateOutput(step.Type);
+                // This is an output plugin for this route
+                var output = _pluginRegistry.CreateOutput(step.Type);
                 var outputConfig = MergeOutputConfig(step);
                 await output.InitializeAsync(outputConfig, cancellationToken);
+                outputs.Add(output);
             }
             else if (_pluginRegistry.IsTransformPlugin(step.Type))
             {
@@ -288,14 +289,14 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
             }
         }
 
-        if (output == null)
+        if (outputs.Count == 0)
         {
             throw new InvalidOperationException(
                 $"Route '{route.Name}' has no output destination defined. " +
                 "Each route must have at least one output plugin.");
         }
 
-        return new RoutePipeline(transforms, output);
+        return new RoutePipeline(transforms, outputs);
     }
 
     /// <summary>
