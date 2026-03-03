@@ -136,7 +136,8 @@ public sealed class WorkflowRunner
     }
 
     /// <summary>
-    /// Executes a route-specific pipeline (transforms + output).
+    /// Executes a route-specific pipeline (transforms + fan-out to outputs).
+    /// Errors in one output do not stop others from completing.
     /// </summary>
     /// <param name="message">The message to process.</param>
     /// <param name="pipeline">The route pipeline to execute.</param>
@@ -160,43 +161,109 @@ public sealed class WorkflowRunner
             }
         }
 
-        // Send to route output
-        await pipeline.Output.WriteAsync(currentMessage, cancellationToken).ConfigureAwait(false);
+        // Fan-out to all route outputs in parallel; errors in one don't stop others
+        await FanOutToOutputsAsync(pipeline.Outputs, currentMessage, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sends a message to multiple outputs in parallel with error isolation.
+    /// Each output write is wrapped in a try-catch so a failure in one output
+    /// does not prevent the others from completing.
+    /// </summary>
+    /// <param name="outputs">The output plugins to write to.</param>
+    /// <param name="message">The message to send.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private static async Task FanOutToOutputsAsync(
+        IReadOnlyList<IOutputPlugin> outputs,
+        Message message,
+        CancellationToken cancellationToken)
+    {
+        if (outputs.Count == 1)
+        {
+            // Single output - no need for fan-out overhead
+            await outputs[0].WriteAsync(message, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // Multiple outputs - fan-out in parallel with error isolation
+        var tasks = outputs.Select(output => SafeWriteAsync(output, message, cancellationToken));
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Wraps a single output write in a try-catch for error isolation during fan-out.
+    /// Errors are silently caught so other outputs can complete.
+    /// </summary>
+    private static async Task SafeWriteAsync(
+        IOutputPlugin output,
+        Message message,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await output.WriteAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is expected during shutdown - rethrow
+            throw;
+        }
+        catch
+        {
+            // Error in one output should not stop others - swallow the exception.
+            // Note: individual output plugins are responsible for their own error logging.
+        }
     }
 }
 
 /// <summary>
-/// Represents a pipeline for a specific route: optional transforms followed by an output.
+/// Represents a pipeline for a specific route: optional transforms followed by one or more outputs.
+/// Supports fan-out to multiple outputs in parallel.
 /// </summary>
 public sealed class RoutePipeline
 {
     /// <summary>
-    /// Gets the transforms to apply before sending to output (can be empty).
+    /// Gets the transforms to apply before sending to outputs (can be empty).
     /// </summary>
     public IReadOnlyList<ITransformPlugin> Transforms { get; }
 
     /// <summary>
-    /// Gets the output plugin for this route.
+    /// Gets the output plugins for this route. Fan-out sends to all outputs in parallel.
     /// </summary>
-    public IOutputPlugin Output { get; }
+    public IReadOnlyList<IOutputPlugin> Outputs { get; }
 
     /// <summary>
-    /// Creates a new RoutePipeline with only an output (no transforms).
+    /// Creates a new RoutePipeline with only a single output (no transforms).
     /// </summary>
     /// <param name="output">The output plugin.</param>
     public RoutePipeline(IOutputPlugin output)
-        : this([], output)
+        : this([], [output ?? throw new ArgumentNullException(nameof(output))])
     {
     }
 
     /// <summary>
-    /// Creates a new RoutePipeline with transforms and an output.
+    /// Creates a new RoutePipeline with transforms and a single output.
     /// </summary>
     /// <param name="transforms">The transforms to apply.</param>
     /// <param name="output">The output plugin.</param>
     public RoutePipeline(IReadOnlyList<ITransformPlugin> transforms, IOutputPlugin output)
+        : this(transforms, [output ?? throw new ArgumentNullException(nameof(output))])
+    {
+    }
+
+    /// <summary>
+    /// Creates a new RoutePipeline with transforms and multiple outputs for fan-out.
+    /// </summary>
+    /// <param name="transforms">The transforms to apply.</param>
+    /// <param name="outputs">The output plugins to fan-out to in parallel.</param>
+    public RoutePipeline(IReadOnlyList<ITransformPlugin> transforms, IReadOnlyList<IOutputPlugin> outputs)
     {
         Transforms = transforms ?? throw new ArgumentNullException(nameof(transforms));
-        Output = output ?? throw new ArgumentNullException(nameof(output));
+        Outputs = outputs ?? throw new ArgumentNullException(nameof(outputs));
+
+        if (outputs.Count == 0)
+        {
+            throw new ArgumentException("At least one output must be provided.", nameof(outputs));
+        }
     }
 }

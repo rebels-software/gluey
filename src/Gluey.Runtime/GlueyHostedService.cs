@@ -160,7 +160,10 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
         {
             foreach (var routePipeline in _routeOutputs.Values)
             {
-                await routePipeline.Output.DisposeAsync();
+                foreach (var output in routePipeline.Outputs)
+                {
+                    await output.DisposeAsync();
+                }
             }
         }
 
@@ -229,8 +232,8 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
             {
                 var routePipeline = await CreateRoutePipelineAsync(route, cancellationToken);
                 _routeOutputs[route.Name] = routePipeline;
-                _logger.LogDebug("Initialized route '{RouteName}' with output type '{OutputType}'",
-                    route.Name, routePipeline.Output.Type);
+                _logger.LogDebug("Initialized route '{RouteName}' with {OutputCount} output(s)",
+                    route.Name, routePipeline.Outputs.Count);
             }
 
             // Default output is optional when routing is enabled

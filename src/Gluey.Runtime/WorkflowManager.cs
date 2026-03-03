@@ -621,7 +621,10 @@ public sealed class WorkflowManager : IAsyncDisposable
         {
             foreach (var routePipeline in instance.RouteOutputs.Values)
             {
-                await routePipeline.Output.DisposeAsync();
+                foreach (var output in routePipeline.Outputs)
+                {
+                    await output.DisposeAsync();
+                }
             }
             instance.RouteOutputs.Clear();
             instance.RouteOutputs = null;
@@ -649,7 +652,10 @@ public sealed class WorkflowManager : IAsyncDisposable
         {
             foreach (var routePipeline in instance.RouteOutputs.Values)
             {
-                await routePipeline.Output.DisposeAsync();
+                foreach (var output in routePipeline.Outputs)
+                {
+                    await output.DisposeAsync();
+                }
             }
         }
     }
