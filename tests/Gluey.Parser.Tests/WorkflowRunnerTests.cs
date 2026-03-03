@@ -411,4 +411,142 @@ public class WorkflowRunnerTests
     }
 
     #endregion
+
+    #region Fan-Out Tests (US-065)
+
+    /// <summary>
+    /// AC1 + AC2: RoutePipeline.Outputs is IReadOnlyList and fan-out uses Task.WhenAll (parallel).
+    /// Verifies message is delivered to all outputs in a route with multiple outputs.
+    /// </summary>
+    [Fact]
+    public async Task FanOutDeliversMessageToAllOutputs()
+    {
+        // Arrange - message routed to "broadcast" which has 3 outputs
+        var metadata = new Dictionary<string, string> { { "_route", "broadcast" } };
+        var inputMessage = CreateTestMessage(metadata: metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var output1 = new MockOutputPlugin();
+        var output2 = new MockOutputPlugin();
+        var output3 = new MockOutputPlugin();
+
+        // AC1: RoutePipeline.Outputs is IReadOnlyList<IOutputPlugin>
+        IReadOnlyList<IOutputPlugin> outputs = new List<IOutputPlugin> { output1, output2, output3 };
+        var routePipeline = new RoutePipeline(new List<ITransformPlugin>(), outputs);
+
+        // Verify the Outputs property type is IReadOnlyList<IOutputPlugin>
+        Assert.IsAssignableFrom<IReadOnlyList<IOutputPlugin>>(routePipeline.Outputs);
+        Assert.Equal(3, routePipeline.Outputs.Count);
+
+        var routeOutputs = new Dictionary<string, RoutePipeline> { { "broadcast", routePipeline } };
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - AC2: all outputs received the message (fan-out)
+        Assert.Single(output1.WrittenMessages);
+        Assert.Single(output2.WrittenMessages);
+        Assert.Single(output3.WrittenMessages);
+        Assert.Equal(inputMessage, output1.WrittenMessages[0]);
+        Assert.Equal(inputMessage, output2.WrittenMessages[0]);
+        Assert.Equal(inputMessage, output3.WrittenMessages[0]);
+    }
+
+    /// <summary>
+    /// AC3: An error in one output does not stop the others from completing.
+    /// </summary>
+    [Fact]
+    public async Task FanOutContinuesWhenOneOutputFails()
+    {
+        // Arrange - message routed to "fanout" with one failing and two healthy outputs
+        var metadata = new Dictionary<string, string> { { "_route", "fanout" } };
+        var inputMessage = CreateTestMessage(metadata: metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var goodOutput1 = new MockOutputPlugin();
+        var goodOutput2 = new MockOutputPlugin();
+        var failingOutput = new ThrowingOutputPlugin(new InvalidOperationException("Output failure"));
+
+        // Fan-out: [goodOutput1, failingOutput, goodOutput2]
+        IReadOnlyList<IOutputPlugin> outputs = new List<IOutputPlugin>
+            { goodOutput1, failingOutput, goodOutput2 };
+        var routePipeline = new RoutePipeline(new List<ITransformPlugin>(), outputs);
+        var routeOutputs = new Dictionary<string, RoutePipeline> { { "fanout", routePipeline } };
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act - should not throw even though one output throws
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - AC3: the two healthy outputs still received the message
+        Assert.Single(goodOutput1.WrittenMessages);
+        Assert.Single(goodOutput2.WrittenMessages);
+    }
+
+    /// <summary>
+    /// AC1 backward compat: Single-output RoutePipeline constructor wraps IOutputPlugin in list.
+    /// </summary>
+    [Fact]
+    public void RoutePipelineSingleOutputConstructorWrapsInList()
+    {
+        var output = new MockOutputPlugin();
+        var pipeline = new RoutePipeline(output);
+
+        Assert.IsAssignableFrom<IReadOnlyList<IOutputPlugin>>(pipeline.Outputs);
+        Assert.Single(pipeline.Outputs);
+        Assert.Same(output, pipeline.Outputs[0]);
+    }
+
+    /// <summary>
+    /// AC1 backward compat: transforms + single output constructor wraps IOutputPlugin in list.
+    /// </summary>
+    [Fact]
+    public void RoutePipelineTransformsAndSingleOutputConstructorWrapsInList()
+    {
+        var output = new MockOutputPlugin();
+        var transforms = new List<ITransformPlugin> { new MockTransformPlugin(m => m) };
+        var pipeline = new RoutePipeline(transforms, output);
+
+        Assert.IsAssignableFrom<IReadOnlyList<IOutputPlugin>>(pipeline.Outputs);
+        Assert.Single(pipeline.Outputs);
+        Assert.Same(output, pipeline.Outputs[0]);
+        Assert.Same(transforms, pipeline.Transforms);
+    }
+
+    /// <summary>
+    /// Validates RoutePipeline rejects empty outputs list.
+    /// </summary>
+    [Fact]
+    public void RoutePipelineRequiresAtLeastOneOutput()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new RoutePipeline(new List<ITransformPlugin>(), new List<IOutputPlugin>()));
+        Assert.Contains("At least one output", ex.Message);
+    }
+
+    #endregion
+}
+
+/// <summary>
+/// Mock output plugin that throws a specified exception when WriteAsync is called.
+/// Used to test fan-out error isolation (AC3).
+/// </summary>
+internal sealed class ThrowingOutputPlugin : IOutputPlugin
+{
+    private readonly Exception _exception;
+
+    public ThrowingOutputPlugin(Exception exception)
+    {
+        _exception = exception;
+    }
+
+    public string Type => "mock-throwing-output";
+
+    public Task InitializeAsync(IReadOnlyDictionary<string, JsonElement> config, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public Task WriteAsync(Message message, CancellationToken cancellationToken = default)
+        => Task.FromException(_exception);
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
