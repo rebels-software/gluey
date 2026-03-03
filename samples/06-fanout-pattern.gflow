@@ -1,0 +1,31 @@
+// Demo 6: Fan-out Pattern
+// A workflow demonstrating parallel output (fan-out) where a single message is
+// delivered to multiple destinations simultaneously. The incoming JSON is parsed,
+// enriched with a timestamp and device summary, then sent to both the console
+// and an HTTP endpoint at the same time.
+//
+// To test:
+// 1. Run: dotnet run --project src/Gluey.Cli -- run samples/06-fanout-pattern.gflow
+// 2. Send: curl -X POST http://localhost:8080/webhook \
+//            -H "Content-Type: application/json" \
+//            -d '{"device_id": "sensor-042", "temperature": 23.5, "status": "online"}'
+
+flow fanout-pattern v1.0 {
+  from http("/webhook") {
+    port: 8080
+  }
+
+  | json.parse(payload)
+  | transform {
+      device_id: device_id
+      temperature: temperature
+      status: status
+      device_summary: device_id + " is " + status
+      processed_at: now()
+    }
+  | route {
+      all: *
+    }
+
+  all -> [console(), http("https://webhook.site/test")]
+}
