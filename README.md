@@ -84,6 +84,10 @@ flow sensor-pipeline v1.0 {
 **Operations**
 - Validate workflows before deployment
 - Run as foreground daemon with graceful shutdown
+- Daemon mode for managing multiple workflows concurrently
+- Smart `start` auto-launches daemon when needed
+- Live log streaming with `--follow`
+- Hot reload workflows without downtime
 - Docker support with Alpine-based images under 100MB
 
 ## Quick Start
@@ -123,6 +127,65 @@ docker build -f docker/Dockerfile -t gluey:latest .
 docker run --rm -p 8080:8080 -v $(pwd)/samples:/workflows \
   gluey:latest run /workflows/01-hello-world.gflow
 ```
+
+## CLI Reference
+
+### Single Workflow Mode
+
+```bash
+gluey validate <file.gflow>        # Check syntax and plugin names
+gluey run <file.gflow>             # Run as foreground process (Ctrl+C to stop)
+gluey run <file.gflow> --verbose   # Run with full .NET framework logs
+```
+
+### Daemon Mode
+
+The daemon manages multiple workflows concurrently via an HTTP API on port 6262.
+
+```bash
+# Daemon lifecycle
+gluey daemon start                 # Start in foreground
+gluey daemon start --background    # Start in background (fork)
+gluey daemon start --port 7000     # Custom port
+gluey daemon status                # Show daemon status, port, pid, uptime
+gluey daemon stop                  # Graceful shutdown
+```
+
+### Workflow Management (via daemon)
+
+```bash
+# Smart start - auto-launches daemon if not running
+gluey start <file.gflow>          # Load + start workflow (starts daemon if needed)
+
+# Manual workflow lifecycle
+gluey load <file.gflow>           # Load workflow into daemon (Draft status)
+gluey start <name|id>             # Start a loaded workflow
+gluey stop <name|id>              # Stop a running workflow
+gluey pause <name|id>             # Pause a running workflow
+gluey reload <name|id>            # Hot reload .gflow file without downtime
+gluey unload <name|id>            # Remove workflow from daemon
+
+# Monitoring
+gluey list                        # List all workflows with status
+gluey logs <name|id>              # Show recent workflow logs
+gluey logs <name|id> --follow     # Stream logs continuously
+
+# Maintenance
+gluey prune                       # Clear persisted workflow state
+```
+
+### Workflow States
+
+```
+Draft → Active → Stopped
+         ↓  ↑
+        Paused
+```
+
+- **Draft** — Loaded but not started
+- **Active** — Running and processing messages
+- **Paused** — Suspended, can be resumed
+- **Stopped** — Halted, can be restarted
 
 ## Sample Workflows
 
