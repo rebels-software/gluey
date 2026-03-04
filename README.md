@@ -79,6 +79,7 @@ flow sensor-pipeline v1.0 {
 - Data transformation with arithmetic, ternary, and built-in functions
 - Binary protocol decoding with explicit endianness support
 - Conditional routing to multiple outputs
+- Fan-out to multiple destinations in parallel
 
 **Operations**
 - Validate workflows before deployment
@@ -132,6 +133,7 @@ docker run --rm -p 8080:8080 -v $(pwd)/samples:/workflows \
 | `03-binary-sensor.gflow` | Binary protocol decoding |
 | `04-industrial-pipeline.gflow` | MQTT → routing → MQTT/SQL |
 | `05-advanced-protocol.gflow` | Binary header-based routing |
+| `06-fanout-pattern.gflow` | Parallel output to console + HTTP |
 
 ## Documentation
 
