@@ -1,7 +1,10 @@
 # Gluey CLI
 
 <p align="center">
-  <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/License-Apache-blue.svg?style=for-the-badge" alt="Apache License 2.0"></a>
+  <a href="https://github.com/rebels-software/gluey/actions"><img src="https://img.shields.io/github/actions/workflow/status/rebels-software/gluey/ci.yml?branch=main&style=for-the-badge&label=Build" alt="Build Status"></a>
+  <a href="https://github.com/rebels-software/gluey/releases/latest"><img src="https://img.shields.io/github/v/release/rebels-software/gluey?style=for-the-badge&label=Version" alt="Latest Release"></a>
+  <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge" alt="Apache License 2.0"></a>
+  <a href="https://github.com/rebels-software/gluey/stargazers"><img src="https://img.shields.io/github/stars/rebels-software/gluey?style=for-the-badge" alt="GitHub Stars"></a>
 </p>
 
 Gluey is a command-line tool and daemon runtime for building IoT message pipelines. Write your data flows in `.gflow` files - a readable DSL designed for integrators - and let Gluey handle the protocol details, error handling, and graceful shutdowns.
@@ -36,6 +39,22 @@ No SDKs. No framework lock-in. Just declare what goes where.
     │   | sql(...)     │          │   • Route branching     │
     └──────────────────┘          └─────────────────────────┘
 ```
+
+## Why Gluey?
+
+Most IoT data routing tools are either too heavy or too general-purpose:
+
+| Tool | Gluey | Node-RED | Apache NiFi | n8n |
+|------|-------|----------|-------------|-----|
+| **Focus** | IoT message pipelines | Visual flow programming | Enterprise data flow | Workflow automation |
+| **Config** | `.gflow` text files | JSON (GUI-generated) | XML templates | JSON (GUI-generated) |
+| **Binary decode** | Built-in (endianness) | Requires custom nodes | Requires processors | Not supported |
+| **Footprint** | ~70MB single binary | ~200MB + Node.js | ~1GB+ JVM | ~200MB + Node.js |
+| **Git-friendly** | Yes (plain text DSL) | Painful (JSON diffs) | No (XML blobs) | No (JSON blobs) |
+| **Daemon mode** | Built-in multi-workflow | Single process | Cluster mode | Single process |
+| **Target user** | IoT integrators | Hobbyists/prototyping | Enterprise teams | Business automation |
+
+Gluey is purpose-built for the IoT integrator who needs to get `MQTT -> filter -> transform -> SQL` running in minutes, not hours. The `.gflow` DSL is version-controllable, diffable, and reviewable. No GUI required.
 
 ## What is Gluey?
 
@@ -182,10 +201,10 @@ Draft → Active → Stopped
         Paused
 ```
 
-- **Draft** — Loaded but not started
-- **Active** — Running and processing messages
-- **Paused** — Suspended, can be resumed
-- **Stopped** — Halted, can be restarted
+- **Draft** - Loaded but not started
+- **Active** - Running and processing messages
+- **Paused** - Suspended, can be resumed
+- **Stopped** - Halted, can be restarted
 
 ## Sample Workflows
 
@@ -200,9 +219,10 @@ Draft → Active → Stopped
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — Installation and first workflow
-- [DSL Reference](docs/dsl-reference.md) — Complete syntax guide
-- [Plugins Reference](docs/plugins.md) — Available inputs, transforms, and outputs
+- [Getting Started](docs/getting-started.md) - Installation and first workflow
+- [DSL Reference](docs/dsl-reference.md) - Complete syntax guide
+- [Plugins Reference](docs/plugins.md) - Available inputs, transforms, and outputs
+- [Changelog](CHANGELOG.md) - Release history
 
 ## Built-in Plugins
 
@@ -211,6 +231,22 @@ Draft → Active → Stopped
 | **Input** | `http`, `mqtt` |
 | **Transform** | `json.parse`, `filter`, `transform`, `decode.binary`, `decode.base64`, `decode.hex`, `route` |
 | **Output** | `console`, `http`, `mqtt`, `sql` |
+
+## Contributing
+
+Contributions are welcome. Please open an issue first to discuss what you'd like to change.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/my-feature`)
+3. Run the tests (`dotnet test`)
+4. Commit your changes
+5. Open a Pull Request
+
+## Versioning
+
+Gluey follows [Semantic Versioning](https://semver.org/). See the [releases page](https://github.com/rebels-software/gluey/releases) for version history.
+
+Current version: **0.1.0**
 
 ## License
 
