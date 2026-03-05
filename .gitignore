@@ -77,3 +77,6 @@ progress.txt
 # dotnet
 *.lock.json
 BenchmarkDotNet.Artifacts/
+
+# VS Code extensions
+*.vsix

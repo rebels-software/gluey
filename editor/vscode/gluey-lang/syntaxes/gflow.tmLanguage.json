@@ -1,0 +1,226 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Gluey Flow",
+  "scopeName": "source.gflow",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#constants" },
+    { "include": "#numbers" },
+    { "include": "#version-string" },
+    { "include": "#meta-variables" },
+    { "include": "#keywords" },
+    { "include": "#storage-keywords" },
+    { "include": "#built-in-functions" },
+    { "include": "#plugin-names" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.gflow",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.gflow",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.begin.gflow" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.comment.end.gflow" }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.gflow",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.gflow" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.gflow" }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.gflow",
+              "match": "\\\\[ntr\\\\\"']"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.gflow",
+          "begin": "'",
+          "end": "'",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.gflow" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.gflow" }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.gflow",
+              "match": "\\\\[ntr\\\\\"']"
+            }
+          ]
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.gflow",
+          "match": "\\b(true|false|null|skip)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.gflow",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.gflow",
+          "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.gflow",
+          "match": "\\b[0-9]+([eE][+-]?[0-9]+)?\\b"
+        }
+      ]
+    },
+    "version-string": {
+      "patterns": [
+        {
+          "name": "constant.other.version.gflow",
+          "match": "(?<=\\s)v[0-9]+\\.[0-9]+\\b"
+        }
+      ]
+    },
+    "meta-variables": {
+      "patterns": [
+        {
+          "name": "variable.other.meta.gflow",
+          "match": "\\$meta\\b(\\.\\w+)*"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.gflow",
+          "match": "\\b(flow|from|route|on_error|schema|filter|transform|enrich|migrate)\\b"
+        }
+      ]
+    },
+    "storage-keywords": {
+      "patterns": [
+        {
+          "name": "storage.type.gflow",
+          "match": "\\b(required|range|description)\\b"
+        }
+      ]
+    },
+    "built-in-functions": {
+      "patterns": [
+        {
+          "name": "support.function.gflow",
+          "match": "\\b(now|uuid|timestamp|split|substring|indexOf|toLower|toUpper|trim|route_to)(?=\\s*\\()"
+        }
+      ]
+    },
+    "plugin-names": {
+      "patterns": [
+        {
+          "name": "entity.name.function.gflow",
+          "match": "(?<=\\|\\s*)(json\\.parse|decode\\.binary|decode\\.base64|decode\\.hex|validate_schema|filter|transform|enrich|route|console|http|mqtt|sql|rabbitmq|kafka)\\b"
+        },
+        {
+          "name": "entity.name.function.gflow",
+          "match": "(?<=->\\s*\\[?\\s*)(json\\.parse|decode\\.binary|decode\\.base64|decode\\.hex|validate_schema|console|http|mqtt|sql|rabbitmq|kafka)\\b"
+        },
+        {
+          "name": "entity.name.function.gflow",
+          "match": "(?<=from\\s+)(http|mqtt|sql|rabbitmq|kafka)\\b"
+        },
+        {
+          "name": "entity.name.function.gflow",
+          "match": "(?<=,\\s*)(console|http|mqtt|sql|rabbitmq|kafka)(?=\\s*\\()"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.gflow",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.pipe.gflow",
+          "match": "\\|(?!\\|)"
+        },
+        {
+          "name": "keyword.operator.logical.gflow",
+          "match": "&&|\\|\\|"
+        },
+        {
+          "name": "keyword.operator.comparison.gflow",
+          "match": "==|!=|>=|<=|>|<"
+        },
+        {
+          "name": "keyword.operator.arithmetic.gflow",
+          "match": "[+\\-*/]"
+        },
+        {
+          "name": "keyword.operator.ternary.gflow",
+          "match": "[?:]"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.braces.begin.gflow",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.section.braces.end.gflow",
+          "match": "\\}"
+        },
+        {
+          "name": "punctuation.section.brackets.begin.gflow",
+          "match": "\\["
+        },
+        {
+          "name": "punctuation.section.brackets.end.gflow",
+          "match": "\\]"
+        },
+        {
+          "name": "punctuation.section.parens.begin.gflow",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.section.parens.end.gflow",
+          "match": "\\)"
+        },
+        {
+          "name": "punctuation.separator.comma.gflow",
+          "match": ","
+        },
+        {
+          "name": "punctuation.accessor.dot.gflow",
+          "match": "\\."
+        }
+      ]
+    }
+  }
+}

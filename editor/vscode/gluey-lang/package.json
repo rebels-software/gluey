@@ -1,0 +1,44 @@
+{
+  "name": "gluey-lang",
+  "displayName": "Gluey Flow Language",
+  "description": "Syntax highlighting for .gflow workflow definition files",
+  "version": "0.1.0",
+  "publisher": "rebels-software",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rebels-software/gluey"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "gflow",
+        "aliases": [
+          "Gluey Flow",
+          "gflow"
+        ],
+        "extensions": [
+          ".gflow"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/gflow-light.png",
+          "dark": "./icons/gflow-dark.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "gflow",
+        "scopeName": "source.gflow",
+        "path": "./syntaxes/gflow.tmLanguage.json"
+      }
+    ]
+  }
+}
