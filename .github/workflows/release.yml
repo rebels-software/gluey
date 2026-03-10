@@ -1,0 +1,144 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            asset_name: linux-x64
+            archive_ext: tar.gz
+            binary_name: Gluey.Cli
+            output_name: gluey
+          - os: ubuntu-latest
+            rid: linux-arm64
+            asset_name: linux-arm64
+            archive_ext: tar.gz
+            binary_name: Gluey.Cli
+            output_name: gluey
+          - os: macos-latest
+            rid: osx-x64
+            asset_name: osx-x64
+            archive_ext: tar.gz
+            binary_name: Gluey.Cli
+            output_name: gluey
+          - os: macos-latest
+            rid: osx-arm64
+            asset_name: osx-arm64
+            archive_ext: tar.gz
+            binary_name: Gluey.Cli
+            output_name: gluey
+          - os: windows-latest
+            rid: win-x64
+            asset_name: win-x64
+            archive_ext: zip
+            binary_name: Gluey.Cli.exe
+            output_name: gluey.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        run: >
+          dotnet publish src/Gluey.Cli/Gluey.Cli.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          -p:PublishSingleFile=true
+          -p:SelfContained=true
+          -p:PublishTrimmed=true
+          -p:Version=${{ steps.version.outputs.version }}
+          -o publish
+
+      - name: Rename binary
+        shell: bash
+        run: mv "publish/${{ matrix.binary_name }}" "publish/${{ matrix.output_name }}"
+
+      - name: Package (tar.gz)
+        if: matrix.archive_ext == 'tar.gz'
+        shell: bash
+        run: |
+          tar -czf "gluey-${{ steps.version.outputs.version }}-${{ matrix.asset_name }}.tar.gz" \
+            -C publish "${{ matrix.output_name }}"
+
+      - name: Package (zip)
+        if: matrix.archive_ext == 'zip'
+        shell: bash
+        run: |
+          cd publish
+          7z a -tzip "../gluey-${{ steps.version.outputs.version }}-${{ matrix.asset_name }}.zip" "${{ matrix.output_name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gluey-${{ matrix.asset_name }}
+          path: gluey-${{ steps.version.outputs.version }}-${{ matrix.asset_name }}.${{ matrix.archive_ext }}
+          retention-days: 5
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Generate checksums
+        working-directory: release
+        run: |
+          sha256sum * > "checksums-${{ steps.version.outputs.version }}.sha256"
+          cat "checksums-${{ steps.version.outputs.version }}.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Gluey ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: release/*
