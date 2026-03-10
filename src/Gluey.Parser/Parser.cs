@@ -471,6 +471,7 @@ public sealed class Parser
     {
         var tokens = new List<string>();
         int parenDepth = 0;
+        int ternaryDepth = 0;
 
         while (!IsAtEnd())
         {
@@ -504,11 +505,21 @@ public sealed class Parser
                 break;
             }
 
-            // End expression when we see "identifier:" pattern (start of next route condition)
-            // This handles multi-line route blocks without explicit separators
-            if (parenDepth == 0 && token.Type == TokenType.Identifier && CheckAhead(1, TokenType.Colon))
+            // End expression when we see "identifier:" pattern (start of next field mapping)
+            // But only when NOT inside a ternary expression (? ... :)
+            if (parenDepth == 0 && ternaryDepth == 0 && token.Type == TokenType.Identifier && CheckAhead(1, TokenType.Colon))
             {
                 break;
+            }
+
+            // Track ternary depth: increment on '?', decrement on ':'
+            if (token.Type == TokenType.Question)
+            {
+                ternaryDepth++;
+            }
+            else if (token.Type == TokenType.Colon && ternaryDepth > 0)
+            {
+                ternaryDepth--;
             }
 
             // Add token to expression

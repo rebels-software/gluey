@@ -94,9 +94,10 @@ public sealed class TransformTransform : ITransformPlugin
 
             return Task.FromResult<Message?>(message.WithPayload(newPayload));
         }
-        catch
+        catch (Exception ex)
         {
-            // On evaluation error, return null to filter out
+            // On evaluation error, log and return null to filter out
+            Console.Error.WriteLine($"[transform] Expression evaluation failed: {ex.Message}");
             return Task.FromResult<Message?>(null);
         }
     }

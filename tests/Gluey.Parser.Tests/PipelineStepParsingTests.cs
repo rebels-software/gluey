@@ -338,4 +338,104 @@ flow test v1.0 {
         Assert.Equal("payload", jsonParse.Config["field"].GetString());
         Assert.False(jsonParse.Config["strict"].GetBoolean());
     }
+
+    [Fact]
+    public void Parse_TransformWithTernaryExpression_CapturesFullExpression()
+    {
+        var source = @"
+flow test v1.0 {
+  from http(""/webhook"")
+  | transform {
+      error_code_id: ErrorCode > 0 ? ErrorCode : null
+      level: temp > 30 ? ""high"" : ""normal""
+    }
+  | console()
+}";
+
+        var lexer = new GlueyParser.Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new GlueyParser.Parser(tokens);
+        var flow = parser.Parse();
+
+        var transformStep = flow.PipelineSteps.First(s => s.Type == "transform");
+
+        // Ternary with null should not be truncated
+        var errorCodeExpr = transformStep.Config["error_code_id"].GetString();
+        Assert.Equal("ErrorCode > 0 ? ErrorCode : null", errorCodeExpr);
+
+        // Ternary with string literals
+        var levelExpr = transformStep.Config["level"].GetString();
+        Assert.Equal("temp > 30 ? \"high\" : \"normal\"", levelExpr);
+    }
+
+    [Fact]
+    public void Parse_TransformWithNestedTernary_CapturesFullExpression()
+    {
+        var source = @"
+flow test v1.0 {
+  from http(""/webhook"")
+  | transform {
+      result: a > 0 ? b > 1 ? ""x"" : ""y"" : ""z""
+    }
+  | console()
+}";
+
+        var lexer = new GlueyParser.Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new GlueyParser.Parser(tokens);
+        var flow = parser.Parse();
+
+        var transformStep = flow.PipelineSteps.First(s => s.Type == "transform");
+        var resultExpr = transformStep.Config["result"].GetString();
+        Assert.Equal("a > 0 ? b > 1 ? \"x\" : \"y\" : \"z\"", resultExpr);
+    }
+
+    [Fact]
+    public void Parse_TransformWithTernaryFollowedByAnotherField_ParsesBothCorrectly()
+    {
+        var source = @"
+flow test v1.0 {
+  from http(""/webhook"")
+  | transform {
+      status: code > 200 ? ""error"" : ""ok""
+      device_id: device_id
+    }
+  | console()
+}";
+
+        var lexer = new GlueyParser.Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new GlueyParser.Parser(tokens);
+        var flow = parser.Parse();
+
+        var transformStep = flow.PipelineSteps.First(s => s.Type == "transform");
+
+        // First field: ternary should be complete
+        var statusExpr = transformStep.Config["status"].GetString();
+        Assert.Equal("code > 200 ? \"error\" : \"ok\"", statusExpr);
+
+        // Second field: simple field reference should also be captured
+        var deviceExpr = transformStep.Config["device_id"].GetString();
+        Assert.Equal("device_id", deviceExpr);
+    }
+
+    [Fact]
+    public void Parse_FilterWithTernary_InParentheses_CapturesFullExpression()
+    {
+        var source = @"
+flow test v1.0 {
+  from http(""/webhook"")
+  | filter(status > 0 ? true : false)
+  | console()
+}";
+
+        var lexer = new GlueyParser.Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new GlueyParser.Parser(tokens);
+        var flow = parser.Parse();
+
+        var filterStep = flow.PipelineSteps.First(s => s.Type == "filter");
+        var condition = filterStep.Config["condition"].GetString();
+        Assert.Equal("status > 0 ? true : false", condition);
+    }
 }
