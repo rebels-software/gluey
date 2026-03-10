@@ -121,9 +121,10 @@ public sealed class SqlOutput : IOutputPlugin
         }
         catch (Exception ex)
         {
-            // Log error and continue gracefully (don't crash the workflow)
-            Console.Error.WriteLine($"[SqlOutput] Insert failed: {ex.Message}");
-            Console.Error.WriteLine($"[SqlOutput] Table: {_table}, Dialect: {_dialect}");
+            // Rethrow so the caller (WorkflowRunner) can log the error through ILogger.
+            // WorkflowRunner wraps output writes in try-catch and continues gracefully.
+            throw new InvalidOperationException(
+                $"Insert failed for table '{_table}' ({_dialect}): {ex.Message}", ex);
         }
     }
 

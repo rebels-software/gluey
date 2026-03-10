@@ -85,7 +85,8 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
                 _inputPlugin!,
                 _transformPlugins!,
                 _defaultOutputPlugin, // Can be null if all messages must route
-                _routeOutputs);
+                _routeOutputs,
+                _logger);
             _logger.LogInformation("Workflow '{Name}' configured with {RouteCount} route outputs", _flow.Name, _routeOutputs.Count);
         }
         else
@@ -94,7 +95,8 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
             _workflowRunner = new WorkflowRunner(
                 _inputPlugin!,
                 _transformPlugins!,
-                _defaultOutputPlugin!);
+                _defaultOutputPlugin!,
+                _logger);
         }
 
         _runTask = _workflowRunner.RunAsync(_cts.Token);

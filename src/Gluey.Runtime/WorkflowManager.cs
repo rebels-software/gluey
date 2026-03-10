@@ -166,14 +166,16 @@ public sealed class WorkflowManager : IAsyncDisposable
                     instance.Input!,
                     instance.Transforms!,
                     instance.Output,
-                    instance.RouteOutputs);
+                    instance.RouteOutputs,
+                    _logger);
             }
             else
             {
                 runner = new WorkflowRunner(
                     instance.Input!,
                     instance.Transforms!,
-                    instance.Output!);
+                    instance.Output!,
+                    _logger);
             }
 
             // Start the workflow

@@ -14,6 +14,7 @@
 
 using Gluey.Core.Abstractions;
 using Gluey.Core.Models;
+using Microsoft.Extensions.Logging;
 
 namespace Gluey.Runtime;
 
@@ -32,6 +33,7 @@ public sealed class WorkflowRunner
     private readonly IReadOnlyList<ITransformPlugin> _transforms;
     private readonly IOutputPlugin? _defaultOutput;
     private readonly IReadOnlyDictionary<string, RoutePipeline> _routeOutputs;
+    private readonly ILogger? _logger;
 
     /// <summary>
     /// Creates a new WorkflowRunner with a single output (no routing).
@@ -39,11 +41,13 @@ public sealed class WorkflowRunner
     /// <param name="input">The input plugin to read messages from.</param>
     /// <param name="transforms">The transform plugins to apply in sequence.</param>
     /// <param name="output">The output plugin to write messages to.</param>
+    /// <param name="logger">Optional logger for pipeline message tracing.</param>
     public WorkflowRunner(
         IInputPlugin input,
         IReadOnlyList<ITransformPlugin> transforms,
-        IOutputPlugin output)
-        : this(input, transforms, output, new Dictionary<string, RoutePipeline>())
+        IOutputPlugin output,
+        ILogger? logger = null)
+        : this(input, transforms, output, new Dictionary<string, RoutePipeline>(), logger)
     {
     }
 
@@ -54,16 +58,19 @@ public sealed class WorkflowRunner
     /// <param name="transforms">The transform plugins to apply in sequence.</param>
     /// <param name="defaultOutput">The default output plugin (used when no route matches or routing is disabled). Can be null if all messages must route.</param>
     /// <param name="routeOutputs">Dictionary mapping route names to their output pipelines.</param>
+    /// <param name="logger">Optional logger for pipeline message tracing.</param>
     public WorkflowRunner(
         IInputPlugin input,
         IReadOnlyList<ITransformPlugin> transforms,
         IOutputPlugin? defaultOutput,
-        IReadOnlyDictionary<string, RoutePipeline> routeOutputs)
+        IReadOnlyDictionary<string, RoutePipeline> routeOutputs,
+        ILogger? logger = null)
     {
         _input = input ?? throw new ArgumentNullException(nameof(input));
         _transforms = transforms ?? throw new ArgumentNullException(nameof(transforms));
         _defaultOutput = defaultOutput;
         _routeOutputs = routeOutputs ?? throw new ArgumentNullException(nameof(routeOutputs));
+        _logger = logger;
 
         // At least one output must be configured
         if (_defaultOutput == null && _routeOutputs.Count == 0)
@@ -85,8 +92,12 @@ public sealed class WorkflowRunner
             // Read messages from input plugin via IAsyncEnumerable
             await foreach (var message in _input.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
+                // Log message received from input
+                LogMessageReceived(message);
+
                 // Apply each transform in sequence
                 var currentMessage = message;
+                var filtered = false;
 
                 foreach (var transform in _transforms)
                 {
@@ -95,13 +106,17 @@ public sealed class WorkflowRunner
 
                     if (currentMessage is null)
                     {
-                        // Message was filtered - break out of transform loop
+                        // Message was filtered - log and break out of transform loop
+                        _logger?.LogInformation("Message filtered by {Type}", transform.Type);
+                        filtered = true;
                         break;
                     }
+
+                    _logger?.LogInformation("Transform {Type} applied", transform.Type);
                 }
 
                 // If message survived all transforms, route to appropriate output
-                if (currentMessage is not null)
+                if (!filtered && currentMessage is not null)
                 {
                     await RouteMessageAsync(currentMessage, cancellationToken).ConfigureAwait(false);
                 }
@@ -110,6 +125,24 @@ public sealed class WorkflowRunner
         catch (OperationCanceledException)
         {
             // Expected when cancellation is requested - graceful shutdown
+        }
+    }
+
+    /// <summary>
+    /// Logs a message received event with source and optional topic metadata.
+    /// </summary>
+    private void LogMessageReceived(Message message)
+    {
+        if (_logger is null) return;
+
+        var source = message.Metadata.TryGetValue("source", out var s) ? s : "unknown";
+        if (message.Metadata.TryGetValue("topic", out var topic))
+        {
+            _logger.LogInformation("Message received from {Source} (topic: {Topic})", source, topic);
+        }
+        else
+        {
+            _logger.LogInformation("Message received from {Source}", source);
         }
     }
 
@@ -130,9 +163,30 @@ public sealed class WorkflowRunner
         else if (_defaultOutput != null)
         {
             // No route match or no route metadata - use default output
-            await _defaultOutput.WriteAsync(message, cancellationToken).ConfigureAwait(false);
+            await WriteToOutputAsync(_defaultOutput, message, cancellationToken).ConfigureAwait(false);
         }
         // If no default output and no route match, message is dropped
+    }
+
+    /// <summary>
+    /// Writes a message to a single output plugin with logging.
+    /// Catches and logs errors so the workflow continues processing.
+    /// </summary>
+    private async Task WriteToOutputAsync(IOutputPlugin output, Message message, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await output.WriteAsync(message, cancellationToken).ConfigureAwait(false);
+            _logger?.LogInformation("Output {Type}: written", output.Type);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning("Output {Type}: {Error}", output.Type, ex.Message);
+        }
     }
 
     /// <summary>
@@ -142,7 +196,7 @@ public sealed class WorkflowRunner
     /// <param name="message">The message to process.</param>
     /// <param name="pipeline">The route pipeline to execute.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    private static async Task ExecuteRoutePipelineAsync(
+    private async Task ExecuteRoutePipelineAsync(
         Message message,
         RoutePipeline pipeline,
         CancellationToken cancellationToken)
@@ -156,9 +210,12 @@ public sealed class WorkflowRunner
 
             if (currentMessage is null)
             {
-                // Message was filtered by route transform - drop it
+                // Message was filtered by route transform - log and drop it
+                _logger?.LogInformation("Message filtered by {Type}", transform.Type);
                 return;
             }
+
+            _logger?.LogInformation("Transform {Type} applied", transform.Type);
         }
 
         // Fan-out to all route outputs in parallel; errors in one don't stop others
@@ -173,46 +230,21 @@ public sealed class WorkflowRunner
     /// <param name="outputs">The output plugins to write to.</param>
     /// <param name="message">The message to send.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    private static async Task FanOutToOutputsAsync(
+    private async Task FanOutToOutputsAsync(
         IReadOnlyList<IOutputPlugin> outputs,
         Message message,
         CancellationToken cancellationToken)
     {
         if (outputs.Count == 1)
         {
-            // Single output - no need for fan-out overhead
-            await outputs[0].WriteAsync(message, cancellationToken).ConfigureAwait(false);
+            // Single output - use WriteToOutputAsync for logging
+            await WriteToOutputAsync(outputs[0], message, cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        // Multiple outputs - fan-out in parallel with error isolation
-        var tasks = outputs.Select(output => SafeWriteAsync(output, message, cancellationToken));
+        // Multiple outputs - fan-out in parallel with error isolation and logging
+        var tasks = outputs.Select(output => WriteToOutputAsync(output, message, cancellationToken));
         await Task.WhenAll(tasks).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Wraps a single output write in a try-catch for error isolation during fan-out.
-    /// Errors are silently caught so other outputs can complete.
-    /// </summary>
-    private static async Task SafeWriteAsync(
-        IOutputPlugin output,
-        Message message,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await output.WriteAsync(message, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancellation is expected during shutdown - rethrow
-            throw;
-        }
-        catch
-        {
-            // Error in one output should not stop others - swallow the exception.
-            // Note: individual output plugins are responsible for their own error logging.
-        }
     }
 }
 
