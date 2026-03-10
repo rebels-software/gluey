@@ -21,7 +21,14 @@ dotnet build
 dotnet run --project src/Gluey.Cli -- --help
 ```
 
-### Option 2: Docker
+### Option 2: Docker (pre-built image)
+
+```bash
+# Pull the pre-built image
+docker run --rm ghcr.io/rebels-software/gluey --help
+```
+
+### Option 3: Docker (build from source)
 
 ```bash
 # Build the image
@@ -117,6 +124,55 @@ Shutting down...
 ```
 
 The workflow drains gracefully within 5 seconds.
+
+## Daemon Mode
+
+When you need to run multiple workflows at once, use daemon mode. The daemon manages workflow lifecycles through an HTTP API on port 6262.
+
+### Quick Start with Smart Start
+
+The easiest way is `gluey start`, which auto-launches the daemon if it isn't running:
+
+```bash
+# Starts daemon in background, loads and starts the workflow
+gluey start hello-world.gflow
+
+# Start more workflows
+gluey start samples/02-smart-sensor.gflow
+gluey start samples/04-industrial-pipeline.gflow
+
+# See what's running
+gluey list
+```
+
+### Manual Daemon Control
+
+```bash
+# Start the daemon in background
+gluey daemon start --background
+
+# Load and start workflows individually
+gluey load hello-world.gflow
+gluey start hello-world
+
+# Check status
+gluey daemon status
+
+# Stop everything
+gluey daemon stop
+```
+
+## Logs
+
+Each workflow logs its pipeline activity (messages received, transforms applied, output delivery). View logs with:
+
+```bash
+# Show recent logs for a workflow
+gluey logs hello-world
+
+# Stream logs continuously
+gluey logs hello-world --follow
+```
 
 ## Using the Sample Workflows
 

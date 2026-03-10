@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://github.com/rebels-software/gluey/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rebels-software/gluey/ci.yml?branch=develop&style=for-the-badge&label=Build" alt="Build Status"></a>
-  <a href="https://github.com/rebels-software/gluey/releases/latest"><img src="https://img.shields.io/badge/Version-0.2.6-brightgreen?style=for-the-badge" alt="Version 0.2.0"></a>
+  <a href="https://github.com/rebels-software/gluey/releases/latest"><img src="https://img.shields.io/badge/Version-0.2.8-brightgreen?style=for-the-badge" alt="Version 0.2.8"></a>
   <a href="https://github.com/rebels-software/gluey/pkgs/container/gluey"><img src="https://img.shields.io/badge/Docker-ghcr.io-blue?style=for-the-badge&logo=docker" alt="Docker Image"></a>
   <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge" alt="Apache License 2.0"></a>
 </p>
@@ -96,9 +96,13 @@ flow sensor-pipeline v1.0 {
 - JSON parsing with error handling
 - Field filtering with expressions (`temperature > 20 && humidity < 80`)
 - Data transformation with arithmetic, ternary, and built-in functions
+- Metadata access in expressions (`$meta.topic`, `$meta.source`)
+- String functions for metadata extraction (`split()`, `substring()`, `indexOf()`, `toLower()`, `toUpper()`, `trim()`)
+- Type casting functions (`int()`, `float()`, `string()`)
 - Binary protocol decoding with explicit endianness support
 - Conditional routing to multiple outputs
 - Fan-out to multiple destinations in parallel
+- Pipeline execution logging for debugging and monitoring
 
 **Operations**
 - Validate workflows before deployment
@@ -111,10 +115,22 @@ flow sensor-pipeline v1.0 {
 
 ## Quick Start
 
+### Docker (pre-built)
+
+```bash
+# Verify installation
+docker run --rm ghcr.io/rebels-software/gluey --help
+
+# Run a workflow
+docker run --rm -p 8080:8080 -v $(pwd)/samples:/workflows \
+  ghcr.io/rebels-software/gluey run /workflows/01-hello-world.gflow
+```
+
+### Build from Source
+
 **Prerequisites:** .NET 10 SDK
 
 ```bash
-# Build from source
 git clone https://github.com/rebels-software/gluey.git
 cd gluey/engine
 dotnet build
@@ -139,10 +155,12 @@ Press `Ctrl+C` to stop the workflow.
 ## Docker
 
 ```bash
-# Build
-docker build -f docker/Dockerfile -t gluey:latest .
+# Pre-built image from GitHub Container Registry
+docker run --rm -p 8080:8080 -v $(pwd)/samples:/workflows \
+  ghcr.io/rebels-software/gluey run /workflows/01-hello-world.gflow
 
-# Run
+# Or build from source
+docker build -f docker/Dockerfile -t gluey:latest .
 docker run --rm -p 8080:8080 -v $(pwd)/samples:/workflows \
   gluey:latest run /workflows/01-hello-world.gflow
 ```

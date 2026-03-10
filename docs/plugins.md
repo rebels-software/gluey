@@ -201,6 +201,8 @@ Supports:
 - **Logical operators**: `&&`, `||`
 - **Parentheses**: `(expr)`
 - **Field access**: `temperature`, `device.location.type`
+- **Metadata access**: `$meta.topic`, `$meta.source`, `$meta.qos`
+- **String functions**: `$meta.topic.indexOf("critical")`, `field.toLower()`
 - **Literals**: numbers, quoted strings, `true`, `false`, `null`
 
 **Example**
@@ -232,11 +234,23 @@ flow complex-filter v1.0 {
 }
 ```
 
+**Metadata Conditions**
+
+Filter based on message metadata (source, MQTT topic, etc.):
+
+```gflow
+// Only process messages from MQTT
+| filter($meta.source == "mqtt")
+
+// Only process messages from topics containing "critical"
+| filter($meta.topic.indexOf("critical") >= 0)
+```
+
 ---
 
 ### transform
 
-Creates a new payload from field mappings. Supports field copying, nested access, arithmetic, ternary expressions, and built-in functions.
+Creates a new payload from field mappings. Supports field copying, nested access, arithmetic, ternary expressions, metadata access, string functions, casting, and built-in functions.
 
 **Config Options**
 
@@ -255,6 +269,9 @@ Configuration is a map of output field names to expressions:
 - **Arithmetic**: `temp_f: temperature * 9 / 5 + 32`
 - **Ternary conditionals**: `level: temperature > 30 ? "high" : "normal"`
 - **String concatenation**: `full_name: first_name + " " + last_name`
+- **Metadata access**: `source: $meta.source`, `topic: $meta.topic`
+- **String functions**: `device_id: $meta.topic.split('/')[1]`
+- **Casting**: `machine_id: int($meta.topic.split('/')[2])`
 
 **Built-in Functions**
 
@@ -263,6 +280,34 @@ Configuration is a map of output field names to expressions:
 | `now()` | string | ISO 8601 timestamp (UTC) |
 | `uuid()` | string | Random UUID |
 | `timestamp()` | number | Unix timestamp in milliseconds |
+| `int(expr)` | integer | Convert to integer (truncates decimals) |
+| `float(expr)` | number | Convert to floating-point number |
+| `string(expr)` | string | Convert to string |
+
+**Metadata Access**
+
+Use `$meta.<key>` to access message metadata in expressions. This is especially useful with MQTT, where the topic often encodes information like device IDs or zones.
+
+| Expression | Description |
+|------------|-------------|
+| `$meta.topic` | MQTT topic the message was received on |
+| `$meta.source` | Input source type (`"mqtt"`, `"http"`) |
+| `$meta.qos` | MQTT Quality of Service level |
+| `$meta.<key>` | Any metadata field set by the input plugin |
+
+**String Functions**
+
+String methods can be chained on any string value, including metadata fields:
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `split(delimiter)` | Split into array, access with `[index]` | `$meta.topic.split('/')[1]` |
+| `substring(start)` | Get substring from index | `serial.substring(5)` |
+| `substring(start, length)` | Get substring with length | `serial.substring(0, 4)` |
+| `indexOf(search)` | Find index of substring (-1 if not found) | `path.indexOf('/')` |
+| `toLower()` | Convert to lowercase | `name.toLower()` |
+| `toUpper()` | Convert to uppercase | `code.toUpper()` |
+| `trim()` | Remove leading/trailing whitespace | `input.trim()` |
 
 **Example**
 
@@ -282,6 +327,34 @@ flow sensor-transform v1.0 {
     }
 
   | console()
+}
+```
+
+**Real-world Example: MQTT with Metadata and Casting**
+
+Extract the machine ID from the MQTT topic, cast it to an integer, and write to SQL:
+
+```gflow
+flow mqtt-to-sql v1.0 {
+  from mqtt("mqtt://broker:1883") {
+    topics: ["compass/machines/+/data"]
+  }
+  | json.parse(payload)
+  | transform {
+      machine_id: int($meta.topic.split('/')[2])
+      temperature: Temperature
+      pressure: Pressure
+      recorded_at: now()
+    }
+  | sql("Host=localhost;Database=iot") {
+      table: "readings"
+      columns: {
+        machine_id: "machine_id"
+        temperature: "temperature"
+        pressure: "pressure"
+        recorded_at: "recorded_at"
+      }
+    }
 }
 ```
 
@@ -469,6 +542,18 @@ Configuration is a map of route names to condition expressions:
 
 - `*` - Catch-all route that always matches
 - Empty condition - Also matches all (catch-all behavior)
+
+**Metadata and String Functions**
+
+Route conditions support the same expression features as `filter` and `transform`, including metadata access and string functions:
+
+```gflow
+| route {
+    mqtt_only: $meta.source == "mqtt"
+    critical: $meta.topic.indexOf("critical") >= 0
+    default: *
+  }
+```
 
 **Example**
 
