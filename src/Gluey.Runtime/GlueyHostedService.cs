@@ -324,14 +324,18 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
     {
         var config = new Dictionary<string, System.Text.Json.JsonElement>(step.Config);
 
-        // If "target" is present but "url" is not, copy target to url
-        // This handles route destinations like: mqtt("mqtt://localhost:1883") { topic: "..." }
-        if (config.TryGetValue("target", out var targetElement) && !config.ContainsKey("url"))
+        // Route destinations store parenthesized arg as "target",
+        // pipeline steps store it as "field" — check both
+        if (!config.ContainsKey("url"))
         {
-            if (targetElement.ValueKind == System.Text.Json.JsonValueKind.String)
-            {
-                config["url"] = targetElement;
-            }
+            System.Text.Json.JsonElement? source = null;
+            if (config.TryGetValue("target", out var targetElement) && targetElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                source = targetElement;
+            else if (config.TryGetValue("field", out var fieldElement) && fieldElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                source = fieldElement;
+
+            if (source.HasValue)
+                config["url"] = source.Value;
         }
 
         return config;

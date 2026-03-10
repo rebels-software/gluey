@@ -584,12 +584,18 @@ public sealed class WorkflowManager : IAsyncDisposable
     {
         var config = new Dictionary<string, JsonElement>(step.Config);
 
-        if (config.TryGetValue("target", out var targetElement) && !config.ContainsKey("url"))
+        // Route destinations store parenthesized arg as "target",
+        // pipeline steps store it as "field" — check both
+        if (!config.ContainsKey("url"))
         {
-            if (targetElement.ValueKind == JsonValueKind.String)
-            {
-                config["url"] = targetElement;
-            }
+            JsonElement? source = null;
+            if (config.TryGetValue("target", out var targetElement) && targetElement.ValueKind == JsonValueKind.String)
+                source = targetElement;
+            else if (config.TryGetValue("field", out var fieldElement) && fieldElement.ValueKind == JsonValueKind.String)
+                source = fieldElement;
+
+            if (source.HasValue)
+                config["url"] = source.Value;
         }
 
         return config;
