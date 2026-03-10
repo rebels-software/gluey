@@ -798,9 +798,50 @@ public sealed class ExpressionEvaluator
             "now" => DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"), // ISO 8601 format
             "uuid" => Guid.NewGuid().ToString(),
             "timestamp" => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            "int" => CastToInt(args.Count > 0 ? args[0] : null),
+            "float" => CastToFloat(args.Count > 0 ? args[0] : null),
+            "string" => CastToString(args.Count > 0 ? args[0] : null),
             _ => null
         };
     }
+
+    /// <summary>
+    /// Casts a value to integer (long). Handles doubles (truncate), strings (parse),
+    /// booleans (1/0), and null (0).
+    /// </summary>
+    private static object? CastToInt(object? value) => value switch
+    {
+        null => 0L,
+        long l => l,
+        double d => (long)d,
+        int i => (long)i,
+        bool b => b ? 1L : 0L,
+        string s => long.TryParse(s, out var result) ? result :
+                    double.TryParse(s, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var d) ? (long)d : 0L,
+        _ => 0L
+    };
+
+    /// <summary>
+    /// Casts a value to floating-point (double). Handles ints, strings (parse),
+    /// booleans (1.0/0.0), and null (0.0).
+    /// </summary>
+    private static object? CastToFloat(object? value) => value switch
+    {
+        null => 0.0,
+        double d => d,
+        long l => (double)l,
+        int i => (double)i,
+        bool b => b ? 1.0 : 0.0,
+        string s => double.TryParse(s, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var result) ? result : 0.0,
+        _ => 0.0
+    };
+
+    /// <summary>
+    /// Casts a value to string. Returns empty string for null.
+    /// </summary>
+    private static object? CastToString(object? value) => value?.ToString() ?? "";
 
     private static object? GetFieldValue(JsonElement element, string fieldPath)
     {

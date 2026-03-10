@@ -233,6 +233,9 @@ Creates a new payload from field mappings.
 | `now()` | string | ISO 8601 timestamp |
 | `uuid()` | string | Random UUID |
 | `timestamp()` | number | Unix timestamp (milliseconds) |
+| `int(expr)` | integer | Convert to integer (truncates decimals) |
+| `float(expr)` | number | Convert to floating-point number |
+| `string(expr)` | string | Convert to string |
 
 ### decode.binary
 
@@ -736,6 +739,41 @@ $meta.topic.split('/')[0]  // "devices"
 $meta.topic.split('/')[1]  // "sensor-001"
 $meta.topic.split('/')[2]  // "telemetry"
 ```
+
+### Casting Functions
+
+Convert values between types using `int()`, `float()`, and `string()`. Useful when extracting numeric values from strings (like MQTT topic segments) or converting between types for comparisons.
+
+```gflow
+// Extract machine ID from MQTT topic as integer
+machine_id: int($meta.topic.split('/')[2])
+
+// Convert string field to number
+count: int(item_count)
+
+// Force floating-point division
+ratio: float(successes) / float(total)
+
+// Convert number to string for concatenation
+label: "sensor-" + string(device_id)
+```
+
+**Conversion Rules:**
+
+| Function | Input | Result |
+|----------|-------|--------|
+| `int(3.7)` | double | `3` (truncated) |
+| `int("42")` | string | `42` |
+| `int(true)` | boolean | `1` |
+| `int(null)` | null | `0` |
+| `float(42)` | integer | `42.0` |
+| `float("3.14")` | string | `3.14` |
+| `float(true)` | boolean | `1.0` |
+| `float(null)` | null | `0.0` |
+| `string(42)` | number | `"42"` |
+| `string(null)` | null | `""` |
+
+Unparseable strings return `0` for `int()` and `0.0` for `float()`.
 
 ### Literals
 
