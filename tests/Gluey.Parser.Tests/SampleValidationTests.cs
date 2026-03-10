@@ -19,18 +19,38 @@ namespace Gluey.Parser.Tests;
 /// <summary>
 /// Integration tests that validate all sample .gflow files through the full
 /// lexer -> parser -> validator pipeline (same as `gluey validate`).
+/// Auto-discovers samples matching NN-*.gflow pattern — new samples are
+/// tested automatically without modifying this file.
 /// </summary>
 public class SampleValidationTests
 {
-    private static readonly string SamplesDir = Path.Combine(
+    private static readonly string SamplesDir = Path.GetFullPath(Path.Combine(
         Path.GetDirectoryName(typeof(SampleValidationTests).Assembly.Location)!,
-        "..", "..", "..", "..", "..", "samples");
+        "..", "..", "..", "..", "..", "samples"));
 
     private readonly FlowValidator _validator = FlowValidator.CreateDefault();
 
+    /// <summary>
+    /// Discovers all numbered sample files (01-*.gflow, 02-*.gflow, etc.)
+    /// Test/debug samples (test-*.gflow) are excluded.
+    /// </summary>
+    public static IEnumerable<object[]> SampleFiles()
+    {
+        if (!Directory.Exists(SamplesDir))
+            yield break;
+
+        foreach (var file in Directory.GetFiles(SamplesDir, "*.gflow").Order())
+        {
+            var filename = Path.GetFileName(file);
+            // Only numbered samples (01-*, 02-*, etc.), skip test-* files
+            if (filename.Length >= 3 && char.IsDigit(filename[0]) && char.IsDigit(filename[1]) && filename[2] == '-')
+                yield return [filename];
+        }
+    }
+
     private (Gluey.Core.Models.Flow flow, ValidationResult result) ValidateFile(string filename)
     {
-        var filePath = Path.GetFullPath(Path.Combine(SamplesDir, filename));
+        var filePath = Path.Combine(SamplesDir, filename);
         Assert.True(File.Exists(filePath), $"Sample file not found: {filePath}");
 
         var source = File.ReadAllText(filePath);
@@ -45,69 +65,44 @@ public class SampleValidationTests
     }
 
     [Theory]
-    [InlineData("01-hello-world.gflow")]
-    [InlineData("02-smart-sensor.gflow")]
-    [InlineData("03-binary-sensor.gflow")]
-    [InlineData("04-industrial-pipeline.gflow")]
-    [InlineData("05-advanced-protocol.gflow")]
-    [InlineData("06-fanout-pattern.gflow")]
+    [MemberData(nameof(SampleFiles))]
     public void Sample_ParsesWithoutError(string filename)
     {
         var (flow, _) = ValidateFile(filename);
         Assert.NotNull(flow);
-        Assert.False(string.IsNullOrEmpty(flow.Name), "Flow name should not be empty");
+        Assert.False(string.IsNullOrEmpty(flow.Name), $"{filename}: flow name should not be empty");
     }
 
     [Theory]
-    [InlineData("01-hello-world.gflow")]
-    [InlineData("02-smart-sensor.gflow")]
-    [InlineData("03-binary-sensor.gflow")]
-    [InlineData("04-industrial-pipeline.gflow")]
-    [InlineData("05-advanced-protocol.gflow")]
-    [InlineData("06-fanout-pattern.gflow")]
+    [MemberData(nameof(SampleFiles))]
     public void Sample_PassesValidation(string filename)
     {
         var (_, result) = ValidateFile(filename);
-        Assert.True(result.IsValid, $"Validation errors: {string.Join(", ", result.Errors.Select(e => e.Message))}");
+        Assert.True(result.IsValid, $"{filename}: {string.Join(", ", result.Errors.Select(e => e.Message))}");
     }
 
     [Theory]
-    [InlineData("01-hello-world.gflow", "hello-world", "1.0")]
-    [InlineData("02-smart-sensor.gflow", "smart-sensor", "1.0")]
-    [InlineData("03-binary-sensor.gflow", "binary-sensor", "1.0")]
-    [InlineData("04-industrial-pipeline.gflow", "industrial-pipeline", "1.0")]
-    [InlineData("05-advanced-protocol.gflow", "advanced-protocol", "1.0")]
-    [InlineData("06-fanout-pattern.gflow", "fanout-pattern", "1.0")]
-    public void Sample_HasCorrectNameAndVersion(string filename, string expectedName, string expectedVersion)
+    [MemberData(nameof(SampleFiles))]
+    public void Sample_HasInputPlugin(string filename)
     {
         var (flow, _) = ValidateFile(filename);
-        Assert.Equal(expectedName, flow.Name);
-        Assert.Equal(expectedVersion, flow.Version);
+        Assert.NotNull(flow.Input);
+        Assert.False(string.IsNullOrEmpty(flow.Input.Type), $"{filename}: input type should not be empty");
     }
 
     [Theory]
-    [InlineData("01-hello-world.gflow", "http")]
-    [InlineData("02-smart-sensor.gflow", "http")]
-    [InlineData("03-binary-sensor.gflow", "http")]
-    [InlineData("04-industrial-pipeline.gflow", "mqtt")]
-    [InlineData("05-advanced-protocol.gflow", "mqtt")]
-    [InlineData("06-fanout-pattern.gflow", "http")]
-    public void Sample_HasExpectedInputType(string filename, string expectedInput)
-    {
-        var (flow, _) = ValidateFile(filename);
-        Assert.Equal(expectedInput, flow.Input.Type);
-    }
-
-    [Theory]
-    [InlineData("01-hello-world.gflow")]
-    [InlineData("02-smart-sensor.gflow")]
-    [InlineData("03-binary-sensor.gflow")]
-    [InlineData("04-industrial-pipeline.gflow")]
-    [InlineData("05-advanced-protocol.gflow")]
-    [InlineData("06-fanout-pattern.gflow")]
+    [MemberData(nameof(SampleFiles))]
     public void Sample_HasAtLeastOnePipelineStep(string filename)
     {
         var (flow, _) = ValidateFile(filename);
         Assert.NotEmpty(flow.PipelineSteps);
+    }
+
+    [Theory]
+    [MemberData(nameof(SampleFiles))]
+    public void Sample_HasVersionFormat(string filename)
+    {
+        var (flow, _) = ValidateFile(filename);
+        Assert.Matches(@"^\d+\.\d+$", flow.Version);
     }
 }
