@@ -49,6 +49,7 @@ COPY --from=build /app/publish .
 # Rename to 'gluey' for cleaner CLI usage
 RUN mv Gluey.Cli gluey || true
 
-# Set entrypoint
-ENTRYPOINT ["./gluey"]
+ENV PATH="/app:${PATH}"
+
+ENTRYPOINT ["gluey"]
 CMD ["--help"]
