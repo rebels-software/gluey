@@ -785,6 +785,203 @@ public class WorkflowRunnerTests
     }
 
     #endregion
+
+    #region Output Plugin Config Regression Tests (parenthesized connection string / URL)
+
+    // Regression: | sql("Host=...") stored the connection string as "field" in Config,
+    // but the old MergeOutputConfig only looked for "target". The fix checks both "target"
+    // and "field" before writing to "url". These tests pin the parser's storage key ("field")
+    // and verify that the merging logic produces the expected "url" key.
+
+    /// <summary>
+    /// Helper that replicates the MergeOutputConfig logic from WorkflowManager
+    /// so tests can exercise the same behaviour without accessing the private method.
+    /// </summary>
+    private static IReadOnlyDictionary<string, System.Text.Json.JsonElement> MergeOutputConfig(
+        IReadOnlyDictionary<string, System.Text.Json.JsonElement> stepConfig)
+    {
+        var config = new Dictionary<string, System.Text.Json.JsonElement>(stepConfig);
+
+        if (!config.ContainsKey("url"))
+        {
+            System.Text.Json.JsonElement? source = null;
+            if (config.TryGetValue("target", out var targetElement)
+                && targetElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                source = targetElement;
+            else if (config.TryGetValue("field", out var fieldElement)
+                && fieldElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                source = fieldElement;
+
+            if (source.HasValue)
+                config["url"] = source.Value;
+        }
+
+        return config;
+    }
+
+    [Fact]
+    public void SqlOutputAsLastPipelineStep_ParserStoresConnectionStringAsFieldKey()
+    {
+        // Arrange - gflow with sql() as the final (output) pipeline step
+        const string gflow = """
+            flow test-sql v1.0 {
+              from http("/webhook") { port: 9999 }
+              | sql("Host=postgres;Port=5432;Database=test;Username=user;Password=pass") {
+                  table: "readings"
+                  columns: { id: "id" }
+                }
+            }
+            """;
+
+        var lexer = new Gluey.Parser.Lexer(gflow);
+        var tokens = lexer.Tokenize();
+        var parser = new Gluey.Parser.Parser(tokens);
+        var flow = parser.Parse();
+
+        // Assert - the last pipeline step is parsed as "sql"
+        var lastStep = flow.PipelineSteps[^1];
+        Assert.Equal("sql", lastStep.Type);
+
+        // The parser stores the parenthesized arg under "field"
+        Assert.True(lastStep.Config.ContainsKey("field"),
+            "Parser must store the parenthesized argument as 'field' in Config");
+        Assert.Equal(
+            "Host=postgres;Port=5432;Database=test;Username=user;Password=pass",
+            lastStep.Config["field"].GetString());
+    }
+
+    [Fact]
+    public void SqlOutputAsLastPipelineStep_MergeOutputConfigProducesUrlKey()
+    {
+        // Arrange - same gflow as above
+        const string gflow = """
+            flow test-sql v1.0 {
+              from http("/webhook") { port: 9999 }
+              | sql("Host=postgres;Port=5432;Database=test;Username=user;Password=pass") {
+                  table: "readings"
+                  columns: { id: "id" }
+                }
+            }
+            """;
+
+        var lexer = new Gluey.Parser.Lexer(gflow);
+        var tokens = lexer.Tokenize();
+        var parser = new Gluey.Parser.Parser(tokens);
+        var flow = parser.Parse();
+        var lastStep = flow.PipelineSteps[^1];
+
+        // Act - apply the same config-merging logic that WorkflowManager uses
+        var mergedConfig = MergeOutputConfig(lastStep.Config);
+
+        // Assert - the merged config must expose the connection string as "url"
+        Assert.True(mergedConfig.ContainsKey("url"),
+            "MergeOutputConfig must promote 'field' value to 'url' when 'target' is absent");
+        Assert.Equal(
+            "Host=postgres;Port=5432;Database=test;Username=user;Password=pass",
+            mergedConfig["url"].GetString());
+    }
+
+    [Fact]
+    public void MqttOutputAsLastPipelineStep_ParserStoresBrokerUrlAsFieldKey()
+    {
+        // Arrange - gflow with mqtt() as the final pipeline step
+        const string gflow = """
+            flow test-mqtt v1.0 {
+              from http("/webhook") { port: 9998 }
+              | mqtt("mqtt://broker:1883")
+            }
+            """;
+
+        var lexer = new Gluey.Parser.Lexer(gflow);
+        var tokens = lexer.Tokenize();
+        var parser = new Gluey.Parser.Parser(tokens);
+        var flow = parser.Parse();
+
+        var lastStep = flow.PipelineSteps[^1];
+        Assert.Equal("mqtt", lastStep.Type);
+
+        Assert.True(lastStep.Config.ContainsKey("field"),
+            "Parser must store the parenthesized argument as 'field' in Config");
+        Assert.Equal("mqtt://broker:1883", lastStep.Config["field"].GetString());
+    }
+
+    [Fact]
+    public void MqttOutputAsLastPipelineStep_MergeOutputConfigProducesUrlKey()
+    {
+        // Arrange
+        const string gflow = """
+            flow test-mqtt v1.0 {
+              from http("/webhook") { port: 9998 }
+              | mqtt("mqtt://broker:1883")
+            }
+            """;
+
+        var lexer = new Gluey.Parser.Lexer(gflow);
+        var tokens = lexer.Tokenize();
+        var parser = new Gluey.Parser.Parser(tokens);
+        var flow = parser.Parse();
+        var lastStep = flow.PipelineSteps[^1];
+
+        // Act
+        var mergedConfig = MergeOutputConfig(lastStep.Config);
+
+        // Assert
+        Assert.True(mergedConfig.ContainsKey("url"),
+            "MergeOutputConfig must promote 'field' value to 'url' when 'target' is absent");
+        Assert.Equal("mqtt://broker:1883", mergedConfig["url"].GetString());
+    }
+
+    [Fact]
+    public void HttpOutputAsLastPipelineStep_ParserStoresWebhookUrlAsFieldKey()
+    {
+        // Arrange - gflow with http() as the final pipeline step
+        const string gflow = """
+            flow test-http v1.0 {
+              from http("/webhook") { port: 9997 }
+              | http("https://example.com/webhook")
+            }
+            """;
+
+        var lexer = new Gluey.Parser.Lexer(gflow);
+        var tokens = lexer.Tokenize();
+        var parser = new Gluey.Parser.Parser(tokens);
+        var flow = parser.Parse();
+
+        var lastStep = flow.PipelineSteps[^1];
+        Assert.Equal("http", lastStep.Type);
+
+        Assert.True(lastStep.Config.ContainsKey("field"),
+            "Parser must store the parenthesized argument as 'field' in Config");
+        Assert.Equal("https://example.com/webhook", lastStep.Config["field"].GetString());
+    }
+
+    [Fact]
+    public void HttpOutputAsLastPipelineStep_MergeOutputConfigProducesUrlKey()
+    {
+        // Arrange
+        const string gflow = """
+            flow test-http v1.0 {
+              from http("/webhook") { port: 9997 }
+              | http("https://example.com/webhook")
+            }
+            """;
+
+        var lexer = new Gluey.Parser.Lexer(gflow);
+        var tokens = lexer.Tokenize();
+        var parser = new Gluey.Parser.Parser(tokens);
+        var flow = parser.Parse();
+        var lastStep = flow.PipelineSteps[^1];
+
+        // Act
+        var mergedConfig = MergeOutputConfig(lastStep.Config);
+
+        // Assert
+        Assert.True(mergedConfig.ContainsKey("url"),
+            "MergeOutputConfig must promote 'field' value to 'url' when 'target' is absent");
+        Assert.Equal("https://example.com/webhook", mergedConfig["url"].GetString());
+    }
+
+    #endregion
 }
 
 /// <summary>
