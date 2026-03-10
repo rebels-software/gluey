@@ -166,25 +166,13 @@ public sealed class HttpWebhookInput : IInputPlugin
         }
     }
 
-    /// <summary>
-    /// Disposes the HTTP webhook server and completes the channel.
-    /// </summary>
     public async ValueTask DisposeAsync()
     {
-        // Signal cancellation to the web application
-        await _cts.CancelAsync();
-
-        // Complete the channel writer
-        _channel.Writer.Complete();
-
-        // Stop the web application
         if (_app != null)
         {
             await _app.StopAsync();
-            await _app.DisposeAsync();
         }
 
-        // Wait for the run task to complete
         if (_runTask != null)
         {
             try
@@ -197,6 +185,24 @@ public sealed class HttpWebhookInput : IInputPlugin
             }
         }
 
+        // Allow Kestrel heartbeat thread to wind down
+        await Task.Delay(200);
+
+        if (_app != null)
+        {
+            try
+            {
+                await _app.DisposeAsync();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Kestrel heartbeat may still be accessing internals
+            }
+        }
+
+        await _cts.CancelAsync();
         _cts.Dispose();
+
+        _channel.Writer.Complete();
     }
 }
