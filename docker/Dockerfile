@@ -23,20 +23,19 @@ COPY src/Gluey.Plugins/Gluey.Plugins.csproj src/Gluey.Plugins/
 COPY tests/Gluey.Parser.Tests/Gluey.Parser.Tests.csproj tests/Gluey.Parser.Tests/
 COPY Directory.Build.props .
 
-# Restore dependencies for target platform
-RUN dotnet restore -r "$(cat /tmp/rid)"
+# Restore dependencies (RID-agnostic for layer caching)
+RUN dotnet restore
 
 # Copy source code
 COPY src/ src/
 COPY tests/ tests/
 COPY samples/ samples/
 
-# Build and publish release
+# Build and publish release (publish does its own RID-specific restore)
 RUN dotnet publish src/Gluey.Cli/Gluey.Cli.csproj \
     -c Release \
     -r "$(cat /tmp/rid)" \
     -o /app/publish \
-    --no-restore \
     /p:PublishSingleFile=true
 
 # Stage 2: Runtime
