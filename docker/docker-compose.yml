@@ -1,0 +1,27 @@
+# Gluey Daemon - Docker Compose Reference
+#
+# Usage:
+#   docker compose up -d
+#   docker exec gluey gluey load /flows/my-workflow.gflow
+#   docker exec gluey gluey start my-workflow
+#   docker exec gluey gluey list
+#
+# Or via the HTTP API:
+#   curl http://localhost:6262/api/health
+#   curl -X POST http://localhost:6262/api/workflows -H "Content-Type: application/json" -d '{"filePath": "/flows/my-workflow.gflow"}'
+
+services:
+  gluey:
+    image: ghcr.io/rebels-software/gluey:develop
+    container_name: gluey
+    restart: unless-stopped
+    command: ["daemon", "start", "--port", "6262"]
+    ports:
+      - "6262:6262"   # Daemon API
+      - "8080:8080"   # HTTP webhook input (adjust per workflow)
+    volumes:
+      - ./flows:/flows              # Your .gflow files
+      - gluey-state:/root/.gluey   # Persist workflow state across restarts
+
+volumes:
+  gluey-state:
