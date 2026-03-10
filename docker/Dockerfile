@@ -2,8 +2,16 @@
 # Multi-stage build for minimal image size
 
 # Stage 1: Build
-FROM mcr.microsoft.com/dotnet/sdk:10.0.102 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.102 AS build
+ARG TARGETARCH
 WORKDIR /src
+
+# Map Docker TARGETARCH to .NET RID
+RUN case "$TARGETARCH" in \
+      amd64) echo "linux-x64" > /tmp/rid ;; \
+      arm64) echo "linux-arm64" > /tmp/rid ;; \
+      *) echo "linux-$TARGETARCH" > /tmp/rid ;; \
+    esac
 
 # Copy solution and project files first (for layer caching)
 COPY Gluey.sln .
@@ -15,8 +23,8 @@ COPY src/Gluey.Plugins/Gluey.Plugins.csproj src/Gluey.Plugins/
 COPY tests/Gluey.Parser.Tests/Gluey.Parser.Tests.csproj tests/Gluey.Parser.Tests/
 COPY Directory.Build.props .
 
-# Restore dependencies
-RUN dotnet restore
+# Restore dependencies for target platform
+RUN dotnet restore -r "$(cat /tmp/rid)"
 
 # Copy source code
 COPY src/ src/
@@ -26,6 +34,7 @@ COPY samples/ samples/
 # Build and publish release
 RUN dotnet publish src/Gluey.Cli/Gluey.Cli.csproj \
     -c Release \
+    -r "$(cat /tmp/rid)" \
     -o /app/publish \
     --no-restore \
     /p:PublishSingleFile=true
