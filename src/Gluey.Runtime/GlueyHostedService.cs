@@ -241,7 +241,8 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
             if (outputStep != null)
             {
                 _defaultOutputPlugin = _pluginRegistry.CreateOutput(outputStep.Type);
-                await _defaultOutputPlugin.InitializeAsync(outputStep.Config, cancellationToken);
+                var outputConfig = MergeOutputConfig(outputStep);
+                await _defaultOutputPlugin.InitializeAsync(outputConfig, cancellationToken);
             }
         }
         else
@@ -251,7 +252,8 @@ public sealed class GlueyHostedService : IHostedService, IAsyncDisposable
             {
                 // Use the last pipeline step as output
                 _defaultOutputPlugin = _pluginRegistry.CreateOutput(outputStep.Type);
-                await _defaultOutputPlugin.InitializeAsync(outputStep.Config, cancellationToken);
+                var outputConfig = MergeOutputConfig(outputStep);
+                await _defaultOutputPlugin.InitializeAsync(outputConfig, cancellationToken);
             }
             else
             {

@@ -506,7 +506,8 @@ public sealed class WorkflowManager : IAsyncDisposable
             if (outputStep != null)
             {
                 instance.Output = _pluginRegistry.CreateOutput(outputStep.Type);
-                await instance.Output.InitializeAsync(outputStep.Config, cancellationToken);
+                var outputConfig = MergeOutputConfig(outputStep);
+                await instance.Output.InitializeAsync(outputConfig, cancellationToken);
             }
         }
         else
@@ -515,7 +516,8 @@ public sealed class WorkflowManager : IAsyncDisposable
             if (outputStep != null)
             {
                 instance.Output = _pluginRegistry.CreateOutput(outputStep.Type);
-                await instance.Output.InitializeAsync(outputStep.Config, cancellationToken);
+                var outputConfig = MergeOutputConfig(outputStep);
+                await instance.Output.InitializeAsync(outputConfig, cancellationToken);
             }
             else
             {
