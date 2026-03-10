@@ -420,7 +420,7 @@ public sealed class Lexer
 
     private bool IsIdentifierStart(char c)
     {
-        return char.IsLetter(c) || c == '_';
+        return char.IsLetter(c) || c == '_' || c == '$';
     }
 
     private bool IsIdentifierPart(char c)

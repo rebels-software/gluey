@@ -581,6 +581,15 @@ public sealed class Parser
                 case TokenType.Colon:
                     tokens.Add(":");
                     break;
+                case TokenType.LeftBracket:
+                    tokens.Add("[");
+                    break;
+                case TokenType.RightBracket:
+                    tokens.Add("]");
+                    break;
+                case TokenType.Null:
+                    tokens.Add("null");
+                    break;
                 case TokenType.Filter:
                 case TokenType.Transform:
                 case TokenType.Route:
