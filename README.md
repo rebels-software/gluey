@@ -2,7 +2,8 @@
 
 <p align="center">
   <a href="https://github.com/rebels-software/gluey/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rebels-software/gluey/ci.yml?branch=develop&style=for-the-badge&label=Build" alt="Build Status"></a>
-  <a href="https://github.com/rebels-software/gluey/releases/latest"><img src="https://img.shields.io/github/v/release/rebels-software/gluey?style=for-the-badge&label=Version" alt="Latest Release"></a>
+  <a href="https://github.com/rebels-software/gluey/releases/latest"><img src="https://img.shields.io/badge/Version-0.2.0-brightgreen?style=for-the-badge" alt="Version 0.2.0"></a>
+  <a href="https://github.com/rebels-software/gluey/pkgs/container/gluey"><img src="https://img.shields.io/badge/Docker-ghcr.io-blue?style=for-the-badge&logo=docker" alt="Docker Image"></a>
   <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge" alt="Apache License 2.0"></a>
 </p>
 
@@ -240,12 +241,6 @@ Contributions are welcome. Please open an issue first to discuss what you'd like
 3. Run the tests (`dotnet test`)
 4. Commit your changes
 5. Open a Pull Request
-
-## Versioning
-
-Gluey follows [Semantic Versioning](https://semver.org/). See the [releases page](https://github.com/rebels-software/gluey/releases) for version history.
-
-Current version: **0.1.0**
 
 ## License
 
