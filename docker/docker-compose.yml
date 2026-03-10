@@ -1,4 +1,4 @@
-# Gluey Daemon - Docker Compose Reference
+# Gluey Daemon with MQTT + PostgreSQL
 #
 # Usage:
 #   docker compose up -d
@@ -6,9 +6,10 @@
 #   docker exec gluey gluey start my-workflow
 #   docker exec gluey gluey list
 #
-# Or via the HTTP API:
-#   curl http://localhost:6262/api/health
-#   curl -X POST http://localhost:6262/api/workflows -H "Content-Type: application/json" -d '{"filePath": "/flows/my-workflow.gflow"}'
+# Docker Compose creates a shared network automatically.
+# Services reach each other by container name:
+#   MQTT broker:  mqtt://mosquitto:1883
+#   PostgreSQL:   Host=postgres;Port=5432;Database=gluey;Username=gluey;Password=gluey
 
 services:
   gluey:
@@ -22,6 +23,34 @@ services:
     volumes:
       - ./flows:/flows              # Your .gflow files
       - gluey-state:/root/.gluey   # Persist workflow state across restarts
+    depends_on:
+      - mosquitto
+      - postgres
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # MQTT
+    volumes:
+      - mosquitto-data:/mosquitto/data
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"   # PostgreSQL (optional, for external access)
+    environment:
+      POSTGRES_DB: gluey
+      POSTGRES_USER: gluey
+      POSTGRES_PASSWORD: gluey
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
 
 volumes:
   gluey-state:
+  mosquitto-data:
+  postgres-data:
