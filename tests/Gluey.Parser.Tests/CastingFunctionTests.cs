@@ -353,4 +353,88 @@ public class CastingFunctionTests
         Assert.IsType<long>(result);
         Assert.Equal(-3L, result);
     }
+
+    [Fact]
+    public void Int_NegativeString_ParsesCorrectly()
+    {
+        var payload = CreatePayload(new { value = 1 });
+        var evaluator = new ExpressionEvaluator(payload);
+        var result = evaluator.Evaluate("int(\"-42\")");
+
+        Assert.IsType<long>(result);
+        Assert.Equal(-42L, result);
+    }
+
+    [Fact]
+    public void NestedCast_StringOfInt_ReturnsString()
+    {
+        var payload = CreatePayload(new { value = 1 });
+        var evaluator = new ExpressionEvaluator(payload);
+        var result = evaluator.Evaluate("string(int(3.7))");
+
+        Assert.IsType<string>(result);
+        Assert.Equal("3", result);
+    }
+
+    [Fact]
+    public void Int_InTernary_WorksCorrectly()
+    {
+        var payload = CreatePayload(new { code = "5" });
+        var evaluator = new ExpressionEvaluator(payload);
+        var result = evaluator.Evaluate("int(code) > 0 ? \"positive\" : \"zero\"");
+
+        Assert.Equal("positive", result);
+    }
+
+    [Fact]
+    public void Int_InTernary_FalseBranch()
+    {
+        var payload = CreatePayload(new { code = "0" });
+        var evaluator = new ExpressionEvaluator(payload);
+        var result = evaluator.Evaluate("int(code) > 0 ? \"positive\" : \"zero\"");
+
+        Assert.Equal("zero", result);
+    }
+
+    [Fact]
+    public void Int_MetaTopicSplitIndex_HigherNumber()
+    {
+        var payload = CreatePayload(new { value = 1 });
+        var metadata = new Dictionary<string, string>
+        {
+            ["topic"] = "compass/machines/123/data"
+        };
+
+        var evaluator = new ExpressionEvaluator(payload, metadata);
+        var result = evaluator.Evaluate("int($meta.topic.split('/')[2])");
+
+        Assert.IsType<long>(result);
+        Assert.Equal(123L, result);
+    }
+
+    [Fact]
+    public void TransformTransform_WithCasting_ProducesCorrectPayload()
+    {
+        // End-to-end: parse .gflow, run TransformTransform, check output
+        var source = @"
+flow test v1.0 {
+  from http(""/webhook"")
+  | transform {
+      machine_id: int($meta.topic.split('/')[2])
+      temp_str: string(temperature)
+    }
+  | console()
+}";
+
+        var lexer = new Gluey.Parser.Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Gluey.Parser.Parser(tokens);
+        var flow = parser.Parse();
+
+        var transformStep = flow.PipelineSteps.First(s => s.Type == "transform");
+
+        // Verify expressions are captured correctly
+        Assert.Equal("int ( $meta . topic . split ( \"/\" ) [ 2 ] )", transformStep.Config["machine_id"].GetString());
+        Assert.Equal("string ( temperature )", transformStep.Config["temp_str"].GetString());
+    }
 }
