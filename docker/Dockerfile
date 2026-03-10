@@ -2,7 +2,7 @@
 # Multi-stage build for minimal image size
 
 # Stage 1: Build
-FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.102 AS build
 WORKDIR /src
 
 # Copy solution and project files first (for layer caching)
@@ -32,7 +32,7 @@ RUN dotnet publish src/Gluey.Cli/Gluey.Cli.csproj \
 
 # Stage 2: Runtime
 # Using aspnet base because Gluey.Plugins uses Microsoft.AspNetCore.App for HTTP input
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.2 AS runtime
 WORKDIR /app
 
 # Copy published app
