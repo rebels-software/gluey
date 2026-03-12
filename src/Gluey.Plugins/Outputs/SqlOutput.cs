@@ -15,37 +15,51 @@
 using System.Data.Common;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Gluey.Core.Abstractions;
 using Gluey.Core.Models;
 using Microsoft.Data.SqlClient;
+using Microsoft.Data.Sqlite;
 using Npgsql;
 
 namespace Gluey.Plugins.Outputs;
 
 /// <summary>
-/// SQL output plugin that inserts messages into PostgreSQL or SQL Server databases.
-/// Auto-detects the database dialect from the connection string prefix.
+/// SQL output plugin that inserts or upserts messages into PostgreSQL, SQL Server, or SQLite databases.
+/// Auto-detects the database dialect from the connection string.
 /// </summary>
 public sealed class SqlOutput : IOutputPlugin
 {
-    private enum SqlDialect
+    internal enum SqlDialect
     {
         PostgreSQL,
-        SqlServer
+        SqlServer,
+        SQLite
     }
 
     private string _connectionString = "";
     private string _table = "";
     private List<ColumnMapping> _columns = [];
+    private List<UpsertKeyMapping> _upsertKeys = [];
     private SqlDialect _dialect;
     private bool _disposed;
 
     public string Type => "sql";
 
     /// <summary>
+    /// Represents a mapping from a database column to a message field.
+    /// </summary>
+    internal sealed record ColumnMapping(string Column, string Field);
+
+    /// <summary>
+    /// Represents an upsert key mapping from a database column to a message field.
+    /// </summary>
+    internal sealed record UpsertKeyMapping(string Column, string Field);
+
+    /// <summary>
     /// Initializes the SQL output with configuration.
     /// </summary>
-    /// <param name="config">Configuration containing connection_string, table, and columns.</param>
+    /// <param name="config">Configuration containing connection_string, table, columns, and optionally upsert.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public Task InitializeAsync(IReadOnlyDictionary<string, JsonElement> config, CancellationToken cancellationToken = default)
     {
@@ -90,12 +104,18 @@ public sealed class SqlOutput : IOutputPlugin
             throw new InvalidOperationException("SQL column mappings are required. Use 'columns' config with column: field pairs.");
         }
 
+        // Extract upsert key mappings (optional)
+        if (config.TryGetValue("upsert", out var upsertElement))
+        {
+            _upsertKeys = ParseUpsertKeys(upsertElement);
+        }
+
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Writes a message to the SQL database by inserting a row.
-    /// On failure, logs the error and continues (does not throw).
+    /// Writes a message to the SQL database by inserting or upserting a row.
+    /// On failure, rethrows so the caller (WorkflowRunner) can log the error.
     /// </summary>
     public async Task WriteAsync(Message message, CancellationToken cancellationToken = default)
     {
@@ -105,7 +125,9 @@ public sealed class SqlOutput : IOutputPlugin
             await connection.OpenAsync(cancellationToken);
 
             await using var command = connection.CreateCommand();
-            command.CommandText = BuildInsertSql();
+            command.CommandText = _upsertKeys.Count > 0
+                ? BuildUpsertSql()
+                : BuildInsertSql();
 
             // Add parameters from message payload
             foreach (var column in _columns)
@@ -123,8 +145,9 @@ public sealed class SqlOutput : IOutputPlugin
         {
             // Rethrow so the caller (WorkflowRunner) can log the error through ILogger.
             // WorkflowRunner wraps output writes in try-catch and continues gracefully.
+            var operation = _upsertKeys.Count > 0 ? "Upsert" : "Insert";
             throw new InvalidOperationException(
-                $"Insert failed for table '{_table}' ({_dialect}): {ex.Message}", ex);
+                $"{operation} failed for table '{_table}' ({_dialect}): {ex.Message}", ex);
         }
     }
 
@@ -144,10 +167,37 @@ public sealed class SqlOutput : IOutputPlugin
     }
 
     /// <summary>
-    /// Detects the SQL dialect from the connection string prefix.
+    /// Returns the SQL that WriteAsync would execute. For testing purposes.
     /// </summary>
-    private static SqlDialect DetectDialect(string connectionString)
+    internal string GetSqlForTesting()
     {
+        return _upsertKeys.Count > 0
+            ? BuildUpsertSql()
+            : BuildInsertSql();
+    }
+
+    /// <summary>
+    /// Returns the detected dialect. For testing purposes.
+    /// </summary>
+    internal SqlDialect GetDialectForTesting() => _dialect;
+
+    /// <summary>
+    /// Returns the parsed upsert keys. For testing purposes.
+    /// </summary>
+    internal IReadOnlyList<UpsertKeyMapping> GetUpsertKeysForTesting() => _upsertKeys;
+
+    /// <summary>
+    /// Detects the SQL dialect from the connection string.
+    /// SQLite is detected by file-based Data Source values or Filename= prefix.
+    /// </summary>
+    internal static SqlDialect DetectDialect(string connectionString)
+    {
+        // Check for SQLite patterns first (before SQL Server, since both use Data Source=)
+        if (IsSqliteConnectionString(connectionString))
+        {
+            return SqlDialect.SQLite;
+        }
+
         // Check for PostgreSQL patterns
         if (connectionString.StartsWith("Host=", StringComparison.OrdinalIgnoreCase) ||
             connectionString.StartsWith("Server=", StringComparison.OrdinalIgnoreCase) && connectionString.Contains("Port=", StringComparison.OrdinalIgnoreCase) ||
@@ -173,6 +223,47 @@ public sealed class SqlOutput : IOutputPlugin
     }
 
     /// <summary>
+    /// Determines if a connection string is for SQLite.
+    /// SQLite uses file-based Data Source values (ending in .db, .sqlite, .sqlite3)
+    /// or the Filename= prefix.
+    /// </summary>
+    private static bool IsSqliteConnectionString(string connectionString)
+    {
+        // Filename= is SQLite-only
+        if (connectionString.StartsWith("Filename=", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Check for Data Source= with a file-like value
+        if (connectionString.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
+        {
+            // Extract the value after Data Source=
+            var valueStart = "Data Source=".Length;
+            var semicolonIndex = connectionString.IndexOf(';', valueStart);
+            var dataSourceValue = semicolonIndex >= 0
+                ? connectionString[valueStart..semicolonIndex].Trim()
+                : connectionString[valueStart..].Trim();
+
+            // SQLite in-memory databases
+            if (dataSourceValue.Equals(":memory:", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // Check for file extensions typical of SQLite
+            if (dataSourceValue.EndsWith(".db", StringComparison.OrdinalIgnoreCase) ||
+                dataSourceValue.EndsWith(".sqlite", StringComparison.OrdinalIgnoreCase) ||
+                dataSourceValue.EndsWith(".sqlite3", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Creates a database connection based on the detected dialect.
     /// </summary>
     private DbConnection CreateConnection()
@@ -181,6 +272,7 @@ public sealed class SqlOutput : IOutputPlugin
         {
             SqlDialect.PostgreSQL => new NpgsqlConnection(_connectionString),
             SqlDialect.SqlServer => new SqlConnection(_connectionString),
+            SqlDialect.SQLite => new SqliteConnection(_connectionString),
             _ => throw new InvalidOperationException($"Unsupported SQL dialect: {_dialect}")
         };
     }
@@ -197,6 +289,90 @@ public sealed class SqlOutput : IOutputPlugin
     }
 
     /// <summary>
+    /// Builds the upsert SQL statement based on the detected dialect.
+    /// PostgreSQL/SQLite use ON CONFLICT ... DO UPDATE SET.
+    /// SQL Server uses MERGE ... WHEN MATCHED ... WHEN NOT MATCHED.
+    /// </summary>
+    private string BuildUpsertSql()
+    {
+        // Get the upsert key column names
+        var upsertKeyColumns = new HashSet<string>(_upsertKeys.Select(k => k.Column), StringComparer.OrdinalIgnoreCase);
+
+        // Get columns that should be updated (all columns except upsert keys)
+        var updateColumns = _columns.Where(c => !upsertKeyColumns.Contains(c.Column)).ToList();
+
+        // If all columns are upsert keys, there's nothing to update — just do a plain INSERT
+        if (updateColumns.Count == 0)
+        {
+            return BuildInsertSql();
+        }
+
+        return _dialect switch
+        {
+            SqlDialect.PostgreSQL or SqlDialect.SQLite => BuildPostgreSqlUpsertSql(upsertKeyColumns, updateColumns),
+            SqlDialect.SqlServer => BuildSqlServerUpsertSql(upsertKeyColumns, updateColumns),
+            _ => throw new InvalidOperationException($"Unsupported SQL dialect for upsert: {_dialect}")
+        };
+    }
+
+    /// <summary>
+    /// Builds PostgreSQL/SQLite upsert using ON CONFLICT ... DO UPDATE SET syntax.
+    /// </summary>
+    private string BuildPostgreSqlUpsertSql(HashSet<string> upsertKeyColumns, List<ColumnMapping> updateColumns)
+    {
+        var sb = new StringBuilder();
+
+        // INSERT INTO "table" ("col1", "col2", ...) VALUES (@col1, @col2, ...)
+        var columnNames = string.Join(", ", _columns.Select(c => QuoteIdentifier(c.Column)));
+        var paramNames = string.Join(", ", _columns.Select(c => GetParameterPlaceholder(c.Column)));
+        sb.Append($"INSERT INTO {QuoteIdentifier(_table)} ({columnNames}) VALUES ({paramNames})");
+
+        // ON CONFLICT ("key1", "key2")
+        var conflictKeys = string.Join(", ", _upsertKeys.Select(k => QuoteIdentifier(k.Column)));
+        sb.Append($" ON CONFLICT ({conflictKeys})");
+
+        // DO UPDATE SET "col" = EXCLUDED."col", ...
+        var setClauses = string.Join(", ", updateColumns.Select(c =>
+            $"{QuoteIdentifier(c.Column)} = EXCLUDED.{QuoteIdentifier(c.Column)}"));
+        sb.Append($" DO UPDATE SET {setClauses}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Builds SQL Server upsert using MERGE syntax.
+    /// </summary>
+    private string BuildSqlServerUpsertSql(HashSet<string> upsertKeyColumns, List<ColumnMapping> updateColumns)
+    {
+        var sb = new StringBuilder();
+
+        var allColumnNames = string.Join(", ", _columns.Select(c => QuoteIdentifier(c.Column)));
+        var allParamNames = string.Join(", ", _columns.Select(c => GetParameterPlaceholder(c.Column)));
+
+        // MERGE INTO [table] AS target
+        sb.Append($"MERGE INTO {QuoteIdentifier(_table)} AS target");
+
+        // USING (VALUES (@col1, @col2, ...)) AS source ([col1], [col2], ...)
+        sb.Append($" USING (VALUES ({allParamNames})) AS source ({allColumnNames})");
+
+        // ON target.[key1] = source.[key1] AND target.[key2] = source.[key2]
+        var onClauses = string.Join(" AND ", _upsertKeys.Select(k =>
+            $"target.{QuoteIdentifier(k.Column)} = source.{QuoteIdentifier(k.Column)}"));
+        sb.Append($" ON {onClauses}");
+
+        // WHEN MATCHED THEN UPDATE SET target.[col] = source.[col], ...
+        var setClauses = string.Join(", ", updateColumns.Select(c =>
+            $"target.{QuoteIdentifier(c.Column)} = source.{QuoteIdentifier(c.Column)}"));
+        sb.Append($" WHEN MATCHED THEN UPDATE SET {setClauses}");
+
+        // WHEN NOT MATCHED THEN INSERT ([col1], [col2], ...) VALUES (source.[col1], source.[col2], ...)
+        var sourceValues = string.Join(", ", _columns.Select(c => $"source.{QuoteIdentifier(c.Column)}"));
+        sb.Append($" WHEN NOT MATCHED THEN INSERT ({allColumnNames}) VALUES ({sourceValues});");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// Quotes an identifier (table or column name) based on the SQL dialect.
     /// </summary>
     private string QuoteIdentifier(string identifier)
@@ -204,6 +380,7 @@ public sealed class SqlOutput : IOutputPlugin
         return _dialect switch
         {
             SqlDialect.PostgreSQL => $"\"{identifier}\"",
+            SqlDialect.SQLite => $"\"{identifier}\"",
             SqlDialect.SqlServer => $"[{identifier}]",
             _ => identifier
         };
@@ -217,6 +394,7 @@ public sealed class SqlOutput : IOutputPlugin
         return _dialect switch
         {
             SqlDialect.PostgreSQL => $"@{column}",
+            SqlDialect.SQLite => $"@{column}",
             SqlDialect.SqlServer => $"@{column}",
             _ => $"@{column}"
         };
@@ -281,6 +459,66 @@ public sealed class SqlOutput : IOutputPlugin
     }
 
     /// <summary>
+    /// Parses upsert key mappings from the config element.
+    /// Supports array format: ["column_name", { db_column: "payload_field" }, ...]
+    /// String items map to same-name (column = field).
+    /// Object items map first property key:value to column:field.
+    /// </summary>
+    private List<UpsertKeyMapping> ParseUpsertKeys(JsonElement element)
+    {
+        var keys = new List<UpsertKeyMapping>();
+
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidOperationException("Upsert config must be an array. Use 'upsert: [\"column\"]' format.");
+        }
+
+        foreach (var item in element.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                var name = item.GetString() ?? "";
+                if (!string.IsNullOrEmpty(name))
+                {
+                    keys.Add(new UpsertKeyMapping(name, name));
+                }
+            }
+            else if (item.ValueKind == JsonValueKind.Object)
+            {
+                // First property: key = column name, value = field name
+                foreach (var prop in item.EnumerateObject())
+                {
+                    var column = prop.Name;
+                    var field = prop.Value.ValueKind == JsonValueKind.String
+                        ? prop.Value.GetString() ?? column
+                        : column;
+                    keys.Add(new UpsertKeyMapping(column, field));
+                    break; // Only use the first property
+                }
+            }
+        }
+
+        if (keys.Count == 0)
+        {
+            throw new InvalidOperationException("Upsert config array must not be empty. Specify at least one key column.");
+        }
+
+        // Validate that all upsert key columns exist in the columns mapping
+        var columnNames = new HashSet<string>(_columns.Select(c => c.Column), StringComparer.OrdinalIgnoreCase);
+        foreach (var key in keys)
+        {
+            if (!columnNames.Contains(key.Column))
+            {
+                throw new InvalidOperationException(
+                    $"Upsert key column '{key.Column}' not found in columns mapping. " +
+                    $"Available columns: {string.Join(", ", columnNames)}");
+            }
+        }
+
+        return keys;
+    }
+
+    /// <summary>
     /// Gets a field value from a JsonElement, supporting nested paths (e.g., "device.location.id").
     /// Returns the value as the appropriate CLR type for SQL parameters.
     /// </summary>
@@ -339,9 +577,4 @@ public sealed class SqlOutput : IOutputPlugin
 
         return value;
     }
-
-    /// <summary>
-    /// Represents a mapping from a database column to a message field.
-    /// </summary>
-    private sealed record ColumnMapping(string Column, string Field);
 }

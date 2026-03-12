@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Gluey.Parser.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Gluey.Core\Gluey.Core.csproj" />
   </ItemGroup>
 
@@ -16,6 +20,7 @@
 
   <ItemGroup>
     <PackageReference Include="MQTTnet" Version="5.0.1.1416" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
     <PackageReference Include="Npgsql" Version="9.0.3" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.1" />
   </ItemGroup>
