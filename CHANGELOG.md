@@ -2,6 +2,13 @@
 
 All notable changes to Gluey CLI are documented here.
 
+## [0.2.9] - 2026-03-12
+### Added
+- SQLite dialect support for the `sql()` output plugin
+- Upsert (insert-or-update) support with `upsert: ["key_column"]` config
+- Stored procedure calling with `procedure` and `params` config
+- 33 unit tests for SQL enhancements
+
 ## [0.2.8] - 2026-03-10
 ### Added
 - Type casting functions: `int()`, `float()`, `string()` for expression evaluation

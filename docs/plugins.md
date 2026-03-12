@@ -720,7 +720,7 @@ flow mqtt-publisher v1.0 {
 
 ### sql
 
-Inserts messages into PostgreSQL or SQL Server databases. Auto-detects the dialect from the connection string.
+Inserts, upserts, or calls stored procedures on PostgreSQL, SQL Server, or SQLite databases. Auto-detects the dialect from the connection string.
 
 **Config Options**
 
@@ -728,8 +728,11 @@ Inserts messages into PostgreSQL or SQL Server databases. Auto-detects the diale
 |--------|------|-------------|
 | `connection_string` | string | *required* - Database connection string |
 | `url` | string | Alternative to connection_string |
-| `table` | string | *required* - Table name to insert into |
-| `columns` | object/array | *required* - Column to field mappings |
+| `table` | string | *required for insert/upsert mode* - Table name to insert into |
+| `columns` | object/array | *required for insert/upsert mode* - Column to field mappings |
+| `upsert` | array | Optional - Column names to use as upsert keys |
+| `procedure` | string | Stored procedure name (mutually exclusive with table) |
+| `params` | object | Parameter mappings for stored procedures |
 
 **Column Mapping Formats**
 
@@ -750,7 +753,8 @@ columns: [
 **Supported Databases**
 
 - **PostgreSQL** - Connection strings starting with `Host=`, `postgres://`, `postgresql://`
-- **SQL Server** - Connection strings with `Server=`, `Data Source=`, `Initial Catalog=`, `sqlserver://`, `mssql://`
+- **SQL Server** - Connection strings with `Server=`, `Initial Catalog=`, `sqlserver://`, `mssql://`
+- **SQLite** - Connection strings with `Data Source=file.db`, `Filename=`, or `:memory:`
 
 **Error Handling**
 
@@ -762,6 +766,50 @@ Insert failures are logged to stderr but don't crash the workflow. This allows p
 - ISO 8601 timestamps (from `now()`) convert to SQL TIMESTAMP
 - Objects and arrays are stored as JSON strings
 - Null values are passed as DBNull
+
+**Upsert (Insert or Update)**
+
+Use `upsert` to specify key columns for conflict detection. If a row with matching keys exists, it updates; otherwise it inserts.
+
+Upsert key formats:
+- String: `"device_id"` -- same column and field name
+- Object: `{ db_column: "payload_field" }` -- different column and field names
+
+```gflow
+| sql("Host=localhost;Database=iot") {
+    table: "devices"
+    columns: {
+      device_id: "device_id"
+      temperature: "temp_f"
+      last_seen: "processed_at"
+    }
+    upsert: ["device_id"]
+  }
+```
+
+Dialect-specific SQL:
+- **PostgreSQL/SQLite**: `ON CONFLICT (keys) DO UPDATE SET ...`
+- **SQL Server**: `MERGE INTO ... WHEN MATCHED ... WHEN NOT MATCHED ...`
+
+**Stored Procedures**
+
+Use `procedure` and `params` instead of `table` and `columns` to call a stored procedure. Not supported with SQLite.
+
+```gflow
+| sql("Host=postgres;Port=5432;Database=app") {
+    procedure: "insert_production_result"
+    params: {
+      MachineId: "machine_id"
+      Date: "date"
+    }
+  }
+```
+
+Dialect-specific SQL:
+- **PostgreSQL**: `CALL "procedure_name"(@Param1, @Param2)`
+- **SQL Server**: `EXEC [schema].[ProcName] @Param1, @Param2`
+
+Schema-qualified names are supported for SQL Server (e.g., `dbo.InsertProductionResult`).
 
 **Example - PostgreSQL**
 
@@ -806,6 +854,23 @@ flow sqlserver-writer v1.0 {
         Payload: "data"
         CreatedAt: "timestamp"
       }
+    }
+}
+```
+
+**Example - SQLite**
+
+```gflow
+flow sqlite-writer v1.0 {
+  from http("/webhook")
+  | json.parse(payload)
+  | sql("Data Source=local.db") {
+      table: "readings"
+      columns: {
+        device: "device_id"
+        temp: "temperature"
+      }
+      upsert: ["device"]
     }
 }
 ```

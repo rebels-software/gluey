@@ -428,7 +428,7 @@ Use `{{field}}` to insert payload values into the topic:
 
 ### sql
 
-Inserts messages into SQL databases.
+Inserts, upserts, or calls stored procedures on SQL databases.
 
 ```gflow
 | sql("Host=localhost;Port=5432;Database=iot;Username=app;Password=secret") {
@@ -443,14 +443,18 @@ Inserts messages into SQL databases.
 
 **Supported Databases:**
 - PostgreSQL (connection strings with `Host=`)
-- SQL Server (connection strings with `Server=` or `Data Source=`)
+- SQL Server (connection strings with `Server=` or `Initial Catalog=`)
+- SQLite (connection strings with `Data Source=file.db`, `Filename=`, or `:memory:`)
 
 **Config Options:**
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `table` | string | Target table name |
-| `columns` | object | Column-to-field mapping |
+| `table` | string | Target table name (required for insert/upsert) |
+| `columns` | object | Column-to-field mapping (required for insert/upsert) |
+| `upsert` | array | Key columns for insert-or-update conflict detection |
+| `procedure` | string | Stored procedure name (mutually exclusive with table) |
+| `params` | object | Parameter mappings for stored procedures |
 
 **Column Mapping:**
 
@@ -461,6 +465,8 @@ columns: {
 ```
 
 The column name is the SQL column; the value is the JSON field path.
+
+Upsert and stored procedure modes are also available. See [plugins.md](plugins.md#sql) for full details, dialect-specific SQL examples, and usage patterns.
 
 ---
 
