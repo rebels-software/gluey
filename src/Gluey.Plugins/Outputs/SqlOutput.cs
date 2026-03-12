@@ -25,7 +25,7 @@ using Npgsql;
 namespace Gluey.Plugins.Outputs;
 
 /// <summary>
-/// SQL output plugin that inserts or upserts messages into PostgreSQL, SQL Server, or SQLite databases.
+/// SQL output plugin that inserts, upserts, or calls stored procedures on PostgreSQL, SQL Server, or SQLite databases.
 /// Auto-detects the database dialect from the connection string.
 /// </summary>
 public sealed class SqlOutput : IOutputPlugin
@@ -41,6 +41,8 @@ public sealed class SqlOutput : IOutputPlugin
     private string _table = "";
     private List<ColumnMapping> _columns = [];
     private List<UpsertKeyMapping> _upsertKeys = [];
+    private string? _procedure;
+    private List<ColumnMapping> _procedureParams = [];
     private SqlDialect _dialect;
     private bool _disposed;
 
@@ -59,7 +61,7 @@ public sealed class SqlOutput : IOutputPlugin
     /// <summary>
     /// Initializes the SQL output with configuration.
     /// </summary>
-    /// <param name="config">Configuration containing connection_string, table, columns, and optionally upsert.</param>
+    /// <param name="config">Configuration containing connection_string, table/columns or procedure/params, and optionally upsert.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public Task InitializeAsync(IReadOnlyDictionary<string, JsonElement> config, CancellationToken cancellationToken = default)
     {
@@ -82,39 +84,81 @@ public sealed class SqlOutput : IOutputPlugin
         // Auto-detect dialect from connection string prefix
         _dialect = DetectDialect(_connectionString);
 
-        // Extract table name (required)
-        if (config.TryGetValue("table", out var tableElement) && tableElement.ValueKind == JsonValueKind.String)
+        // Check for procedure mode
+        var hasProcedure = config.TryGetValue("procedure", out var procedureElement) &&
+                           procedureElement.ValueKind == JsonValueKind.String;
+        var hasTable = config.TryGetValue("table", out var tableElement) &&
+                       tableElement.ValueKind == JsonValueKind.String;
+
+        // Validate mutual exclusion: procedure and table cannot both be present
+        if (hasProcedure && hasTable)
         {
-            _table = tableElement.GetString() ?? "";
+            throw new InvalidOperationException(
+                "Cannot specify both 'procedure' and 'table'. Use 'procedure' with 'params' for stored procedures, or 'table' with 'columns' for inserts/upserts.");
         }
 
-        if (string.IsNullOrEmpty(_table))
+        if (hasProcedure)
         {
-            throw new InvalidOperationException("SQL table name is required. Use 'table' config.");
-        }
+            // Stored procedure mode
+            if (_dialect == SqlDialect.SQLite)
+            {
+                throw new InvalidOperationException("Stored procedures are not supported with SQLite.");
+            }
 
-        // Extract column mappings (required)
-        if (config.TryGetValue("columns", out var columnsElement))
-        {
-            _columns = ParseColumnMappings(columnsElement);
-        }
+            _procedure = procedureElement.GetString() ?? "";
+            if (string.IsNullOrEmpty(_procedure))
+            {
+                throw new InvalidOperationException("Procedure name cannot be empty.");
+            }
 
-        if (_columns.Count == 0)
-        {
-            throw new InvalidOperationException("SQL column mappings are required. Use 'columns' config with column: field pairs.");
-        }
+            // Parse params (required for procedure mode)
+            if (config.TryGetValue("params", out var paramsElement))
+            {
+                _procedureParams = ParseColumnMappings(paramsElement);
+            }
 
-        // Extract upsert key mappings (optional)
-        if (config.TryGetValue("upsert", out var upsertElement))
+            if (_procedureParams.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "Stored procedure requires 'params' config with parameter: field pairs.");
+            }
+        }
+        else
         {
-            _upsertKeys = ParseUpsertKeys(upsertElement);
+            // Table mode (original behavior)
+            if (hasTable)
+            {
+                _table = tableElement.GetString() ?? "";
+            }
+
+            if (string.IsNullOrEmpty(_table))
+            {
+                throw new InvalidOperationException("SQL table name is required. Use 'table' config.");
+            }
+
+            // Extract column mappings (required for table mode)
+            if (config.TryGetValue("columns", out var columnsElement))
+            {
+                _columns = ParseColumnMappings(columnsElement);
+            }
+
+            if (_columns.Count == 0)
+            {
+                throw new InvalidOperationException("SQL column mappings are required. Use 'columns' config with column: field pairs.");
+            }
+
+            // Extract upsert key mappings (optional, table mode only)
+            if (config.TryGetValue("upsert", out var upsertElement))
+            {
+                _upsertKeys = ParseUpsertKeys(upsertElement);
+            }
         }
 
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Writes a message to the SQL database by inserting or upserting a row.
+    /// Writes a message to the SQL database by inserting, upserting, or calling a stored procedure.
     /// On failure, rethrows so the caller (WorkflowRunner) can log the error.
     /// </summary>
     public async Task WriteAsync(Message message, CancellationToken cancellationToken = default)
@@ -125,18 +169,36 @@ public sealed class SqlOutput : IOutputPlugin
             await connection.OpenAsync(cancellationToken);
 
             await using var command = connection.CreateCommand();
-            command.CommandText = _upsertKeys.Count > 0
-                ? BuildUpsertSql()
-                : BuildInsertSql();
 
-            // Add parameters from message payload
-            foreach (var column in _columns)
+            if (_procedure != null)
             {
-                var value = GetFieldValue(message.Payload.RootElement, column.Field);
-                var param = command.CreateParameter();
-                param.ParameterName = GetParameterName(column.Column);
-                param.Value = value ?? DBNull.Value;
-                command.Parameters.Add(param);
+                // Stored procedure mode
+                command.CommandText = BuildProcedureCallSql();
+
+                foreach (var mapping in _procedureParams)
+                {
+                    var value = GetFieldValue(message.Payload.RootElement, mapping.Field);
+                    var param = command.CreateParameter();
+                    param.ParameterName = GetParameterName(mapping.Column);
+                    param.Value = value ?? DBNull.Value;
+                    command.Parameters.Add(param);
+                }
+            }
+            else
+            {
+                // Table mode (insert or upsert)
+                command.CommandText = _upsertKeys.Count > 0
+                    ? BuildUpsertSql()
+                    : BuildInsertSql();
+
+                foreach (var column in _columns)
+                {
+                    var value = GetFieldValue(message.Payload.RootElement, column.Field);
+                    var param = command.CreateParameter();
+                    param.ParameterName = GetParameterName(column.Column);
+                    param.Value = value ?? DBNull.Value;
+                    command.Parameters.Add(param);
+                }
             }
 
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -145,6 +207,11 @@ public sealed class SqlOutput : IOutputPlugin
         {
             // Rethrow so the caller (WorkflowRunner) can log the error through ILogger.
             // WorkflowRunner wraps output writes in try-catch and continues gracefully.
+            if (_procedure != null)
+            {
+                throw new InvalidOperationException(
+                    $"Procedure call failed for '{_procedure}' ({_dialect}): {ex.Message}", ex);
+            }
             var operation = _upsertKeys.Count > 0 ? "Upsert" : "Insert";
             throw new InvalidOperationException(
                 $"{operation} failed for table '{_table}' ({_dialect}): {ex.Message}", ex);
@@ -171,6 +238,10 @@ public sealed class SqlOutput : IOutputPlugin
     /// </summary>
     internal string GetSqlForTesting()
     {
+        if (_procedure != null)
+        {
+            return BuildProcedureCallSql();
+        }
         return _upsertKeys.Count > 0
             ? BuildUpsertSql()
             : BuildInsertSql();
@@ -185,6 +256,11 @@ public sealed class SqlOutput : IOutputPlugin
     /// Returns the parsed upsert keys. For testing purposes.
     /// </summary>
     internal IReadOnlyList<UpsertKeyMapping> GetUpsertKeysForTesting() => _upsertKeys;
+
+    /// <summary>
+    /// Returns the parsed procedure params. For testing purposes.
+    /// </summary>
+    internal IReadOnlyList<ColumnMapping> GetProcedureParamsForTesting() => _procedureParams;
 
     /// <summary>
     /// Detects the SQL dialect from the connection string.
@@ -313,6 +389,34 @@ public sealed class SqlOutput : IOutputPlugin
             SqlDialect.SqlServer => BuildSqlServerUpsertSql(upsertKeyColumns, updateColumns),
             _ => throw new InvalidOperationException($"Unsupported SQL dialect for upsert: {_dialect}")
         };
+    }
+
+    /// <summary>
+    /// Builds the SQL to call a stored procedure based on the detected dialect.
+    /// PostgreSQL: CALL "procedure_name"(@Param1, @Param2)
+    /// SQL Server: EXEC [schema].[procedure_name] @Param1, @Param2
+    /// </summary>
+    private string BuildProcedureCallSql()
+    {
+        var paramList = string.Join(", ", _procedureParams.Select(p => GetParameterPlaceholder(p.Column)));
+
+        return _dialect switch
+        {
+            SqlDialect.PostgreSQL => $"CALL {QuoteIdentifier(_procedure!)}({paramList})",
+            SqlDialect.SqlServer => BuildSqlServerProcedureCallSql(paramList),
+            _ => throw new InvalidOperationException($"Stored procedures are not supported with {_dialect}.")
+        };
+    }
+
+    /// <summary>
+    /// Builds SQL Server EXEC statement. Supports schema-qualified names (e.g., dbo.ProcName).
+    /// </summary>
+    private string BuildSqlServerProcedureCallSql(string paramList)
+    {
+        // Split on '.' and quote each part for schema-qualified names
+        var parts = _procedure!.Split('.');
+        var quotedName = string.Join(".", parts.Select(p => QuoteIdentifier(p)));
+        return $"EXEC {quotedName} {paramList}";
     }
 
     /// <summary>
