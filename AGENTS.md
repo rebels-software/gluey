@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Gluey CLI is a .NET 10 command-line tool and daemon runtime that parses `.gflow` DSL files and executes IoT message routing workflows. Connect data sources (HTTP, MQTT) to destinations (SQL, MQTT, HTTP) with transforms, filtering, and routing—without writing code.
+Gluey CLI is a .NET 10 command-line tool and daemon runtime that parses `.gflow` DSL files and executes message routing workflows. Connect data sources (HTTP, MQTT) to destinations (SQL, MQTT, HTTP) with transforms, filtering, and routing—without writing code.
 
 ## Development Commands
 

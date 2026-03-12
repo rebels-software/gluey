@@ -1,6 +1,6 @@
 # Gluey Flow Language
 
-Syntax highlighting for `.gflow` workflow definition files used by the [Gluey](https://github.com/rebels-software/gluey) IoT message router.
+Syntax highlighting for `.gflow` workflow definition files used by the [Gluey](https://github.com/rebels-software/gluey) message router.
 
 ## Features
 

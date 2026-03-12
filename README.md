@@ -7,7 +7,7 @@
   <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge" alt="Apache License 2.0"></a>
 </p>
 
-Gluey is a command-line tool and daemon runtime for building IoT message pipelines. Write your data flows in `.gflow` files - a readable DSL designed for integrators - and let Gluey handle the protocol details, error handling, and graceful shutdowns.
+Gluey is a command-line tool and daemon runtime for building message pipelines. Write your data flows in `.gflow` files - a readable DSL designed for integrators - and let Gluey handle the protocol details, error handling, and graceful shutdowns.
 
 **The CLI** validates and runs workflows. **The runtime** keeps them alive as daemons with proper signal handling.
 
@@ -42,23 +42,23 @@ No SDKs. No framework lock-in. Just declare what goes where.
 
 ## Why Gluey?
 
-Most IoT data routing tools are either too heavy or too general-purpose:
+Most data routing tools are either too heavy or too general-purpose:
 
 | Tool | Gluey | Node-RED | Apache NiFi | n8n |
 |------|-------|----------|-------------|-----|
-| **Focus** | IoT message pipelines | Visual flow programming | Enterprise data flow | Workflow automation |
+| **Focus** | Message pipelines | Visual flow programming | Enterprise data flow | Workflow automation |
 | **Config** | `.gflow` text files | JSON (GUI-generated) | XML templates | JSON (GUI-generated) |
 | **Binary decode** | Built-in (endianness) | Requires custom nodes | Requires processors | Not supported |
 | **Footprint** | ~70MB single binary | ~200MB + Node.js | ~1GB+ JVM | ~200MB + Node.js |
 | **Git-friendly** | Yes (plain text DSL) | Painful (JSON diffs) | No (XML blobs) | No (JSON blobs) |
 | **Daemon mode** | Built-in multi-workflow | Single process | Cluster mode | Single process |
-| **Target user** | IoT integrators | Hobbyists/prototyping | Enterprise teams | Business automation |
+| **Target user** | Integrators | Hobbyists/prototyping | Enterprise teams | Business automation |
 
-Gluey is purpose-built for the IoT integrator who needs to get `MQTT -> filter -> transform -> SQL` running in minutes, not hours. The `.gflow` DSL is version-controllable, diffable, and reviewable. No GUI required.
+Gluey is purpose-built for the integrator who needs to get `MQTT -> filter -> transform -> SQL` running in minutes, not hours. The `.gflow` DSL is version-controllable, diffable, and reviewable. No GUI required.
 
 ## What is Gluey?
 
-Gluey lets you model data flows like `MQTT → filter → transform → SQL` in a declarative DSL. Define your workflows in `.gflow` files and run them as daemons. Perfect for IoT integrators who need to forward, transform, and route messages between protocols.
+Gluey lets you model data flows like `MQTT → filter → transform → SQL` in a declarative DSL. Define your workflows in `.gflow` files and run them as daemons. Perfect for integrators who need to forward, transform, and route messages between protocols.
 
 ```gflow
 flow sensor-pipeline v1.0 {
