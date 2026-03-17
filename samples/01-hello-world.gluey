@@ -1,0 +1,57 @@
+// Demo 1: Hello World
+// A simple workflow that receives JSON via HTTP webhook and outputs to console.
+//
+// To test:
+// 1. Run: dotnet run --project src/Gluey.Cli -- run samples/01-hello-world.gluey
+// 2. Send: curl -X POST http://localhost:8080/webhook \
+//            -H "Content-Type: application/json" \
+//            -d '{"message": "Hello, Gluey!", "timestamp": "2026-01-29T10:00:00Z"}'
+//
+// http-app local 1.0.0 {
+//   host: "localhost"
+//   port http: 8080
+//   auth: []
+// }
+//
+// json hello-message 1.0.0 {
+//   properties: {
+//     message: text 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Message" }
+//       description: { "en-US": "Hello message content" }
+//     }
+//     timestamp: text 1.0.0 {
+//       required: true
+//       format: "date-time"
+//       displayName: { "en-US": "Timestamp" }
+//       description: { "en-US": "When the message was sent, ISO 8601 format" }
+//     }
+//   }
+// }
+//
+// json ok 1.0.0 {
+//   properties: {
+//     status: text 1.0.0 {
+//       required: true
+//       const: "ok"
+//       displayName: { "en-US": "Status" }
+//       description: { "en-US": "Acknowledgement status" }
+//     }
+//   }
+// }
+//
+// http-endpoint webhook 1.0.0 {
+//   app: local 1.0.0
+//   plugin: http 1.1.0
+//   method: POST
+//   path: "/webhook"
+//   payload: json hello-message 1.0.0
+//   responses: {
+//     200: json ok 1.0.0
+//   }
+// }
+
+flow hello-world 1.0.0 {
+  from http-endpoint webhook 1.0.0
+  | console()
+}

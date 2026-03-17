@@ -1,0 +1,177 @@
+// Demo 4: Industrial Pipeline
+// A workflow that routes industrial IoT sensor data based on alert levels.
+// Critical alerts are published to MQTT for real-time monitoring, while normal
+// readings are stored via HTTP for historical analysis.
+//
+// mqtt-broker-app emqx 1.0.0 {
+//   host: "localhost"
+//   port mqtt: 1883
+//   auth: []
+// }
+//
+// http-app timescaledb 1.0.0 {
+//   host: "localhost"
+//   port http: 5432
+//   auth: db-credentials 1.0.0
+// }
+//
+// json sensor-telemetry 1.0.0 {
+//   properties: {
+//     device_id: text 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Device ID" }
+//       description: { "en-US": "Sensor identifier" }
+//     }
+//     temperature: float64 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Temperature" }
+//       description: { "en-US": "Temperature in degrees Celsius" }
+//     }
+//     pressure: float64 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Pressure" }
+//       description: { "en-US": "Pressure in PSI" }
+//     }
+//   }
+// }
+//
+// json alert-message 1.0.0 {
+//   properties: {
+//     device_id: text 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Device ID" }
+//       description: { "en-US": "Sensor that triggered the alert" }
+//     }
+//     temperature: float64 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Temperature" }
+//       description: { "en-US": "Temperature at time of alert" }
+//     }
+//     pressure: float64 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Pressure" }
+//       description: { "en-US": "Pressure at time of alert" }
+//     }
+//     alert_level: text 1.0.0 {
+//       required: true
+//       enum: ["critical", "normal"]
+//       displayName: { "en-US": "Alert Level" }
+//       description: { "en-US": "Severity of the alert" }
+//     }
+//     recorded_at: timestamp 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Recorded At" }
+//       description: { "en-US": "When the alert was generated" }
+//     }
+//   }
+// }
+//
+// json sensor-reading 1.0.0 {
+//   properties: {
+//     device_id: text 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Device ID" }
+//       description: { "en-US": "Sensor identifier" }
+//     }
+//     temperature: float64 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Temperature" }
+//       description: { "en-US": "Temperature in degrees Celsius" }
+//     }
+//     pressure: float64 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Pressure" }
+//       description: { "en-US": "Pressure in PSI" }
+//     }
+//     alert_level: text 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Alert Level" }
+//       description: { "en-US": "Alert classification" }
+//     }
+//     recorded_at: timestamp 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Recorded At" }
+//       description: { "en-US": "When the reading was taken" }
+//     }
+//   }
+// }
+//
+// json ok 1.0.0 {
+//   properties: {
+//     status: text 1.0.0 {
+//       required: true
+//       const: "ok"
+//       displayName: { "en-US": "Status" }
+//       description: { "en-US": "Acknowledgement status" }
+//     }
+//   }
+// }
+//
+// json db-error 1.0.0 {
+//   properties: {
+//     error: text 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Error" }
+//       description: { "en-US": "Error message from the database" }
+//     }
+//   }
+// }
+//
+// mqtt-subscription sensor-telemetry 1.0.0 {
+//   app: emqx 1.0.0
+//   plugin: mqtt 5.0.0
+//   topic: "sensors/+/telemetry" {
+//     0: text 1.0.0 { const: "sensors" }
+//     1: text 1.0.0 {
+//       name: "device_id"
+//       required: true
+//       displayName: { "en-US": "Device ID" }
+//       description: { "en-US": "Sensor identifier" }
+//     }
+//     2: text 1.0.0 { const: "telemetry" }
+//   }
+//   qos: 1
+//   payload: json sensor-telemetry 1.0.0
+// }
+//
+// mqtt-publication critical-alert 1.0.0 {
+//   app: emqx 1.0.0
+//   plugin: mqtt 5.0.0
+//   topic: "alerts/critical" {
+//     0: text 1.0.0 { const: "alerts" }
+//     1: text 1.0.0 { const: "critical" }
+//   }
+//   qos: 1
+//   retain: false
+//   payload: json alert-message 1.0.0
+// }
+//
+// http-endpoint store-reading 1.0.0 {
+//   app: timescaledb 1.0.0
+//   plugin: http 2.0.0
+//   method: POST
+//   path: "/v1/sensor_readings"
+//   headers: db-write-headers 1.0.0
+//   payload: json sensor-reading 1.0.0
+//   responses: {
+//     201: json ok 1.0.0
+//     default: json db-error 1.0.0
+//   }
+// }
+
+flow industrial-pipeline 1.0.0 {
+  from mqtt-subscription sensor-telemetry 1.0.0
+
+  | transform {
+      output.device_id    <- topic.device_id
+      output.temperature  <- payload.temperature
+      output.pressure     <- payload.pressure
+      output.alert_level  <- payload.temperature > 80 || payload.pressure > 140 ? "critical" : "normal"
+      output.recorded_at  <- now()
+    }
+
+  | gateway exclusive {
+      input.alert_level == "critical" -> to mqtt-publication critical-alert 1.0.0
+      default                         -> to http-endpoint store-reading 1.0.0
+    }
+}

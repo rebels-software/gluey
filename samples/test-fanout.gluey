@@ -1,0 +1,45 @@
+// Test: Fan-out to multiple outputs
+// Verifies that a single message is delivered to multiple console outputs
+// via the gateway parallel fan-out syntax.
+//
+// http-app local 1.0.0 {
+//   host: "localhost"
+//   port http: 8090
+//   auth: []
+// }
+//
+// json test-message 1.0.0 {
+//   properties: {
+//     message: text 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Message" }
+//       description: { "en-US": "Test message content" }
+//     }
+//   }
+// }
+//
+// json ok 1.0.0 {
+//   properties: {
+//     status: text 1.0.0 { required: true, const: "ok" }
+//   }
+// }
+//
+// http-endpoint fanout-test-webhook 1.0.0 {
+//   app: local 1.0.0
+//   plugin: http 1.1.0
+//   method: POST
+//   path: "/webhook"
+//   payload: json test-message 1.0.0
+//   responses: {
+//     200: json ok 1.0.0
+//   }
+// }
+
+flow fanout-test 1.0.0 {
+  from http-endpoint fanout-test-webhook 1.0.0
+
+  | gateway parallel {
+      -> console()
+      -> console()
+    }
+}

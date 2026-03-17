@@ -1,0 +1,50 @@
+// Test: Basic flow execution
+//
+// http-app local 1.0.0 {
+//   host: "localhost"
+//   port http: 8080
+//   auth: []
+// }
+//
+// json test-message 1.0.0 {
+//   properties: {
+//     message: text 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Message" }
+//       description: { "en-US": "Test message content" }
+//     }
+//     timestamp: text 1.0.0 {
+//       required: true
+//       format: "date-time"
+//       displayName: { "en-US": "Timestamp" }
+//       description: { "en-US": "When the message was sent, ISO 8601 format" }
+//     }
+//   }
+// }
+//
+// json ok 1.0.0 {
+//   properties: {
+//     status: text 1.0.0 {
+//       required: true
+//       const: "ok"
+//       displayName: { "en-US": "Status" }
+//       description: { "en-US": "Acknowledgement status" }
+//     }
+//   }
+// }
+//
+// http-endpoint test-webhook 1.0.0 {
+//   app: local 1.0.0
+//   plugin: http 1.1.0
+//   method: POST
+//   path: "/webhook"
+//   payload: json test-message 1.0.0
+//   responses: {
+//     200: json ok 1.0.0
+//   }
+// }
+
+flow test-run 1.0.0 {
+  from http-endpoint test-webhook 1.0.0
+  | console()
+}

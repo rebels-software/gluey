@@ -1,0 +1,75 @@
+// Demo 2: Smart Sensor
+// A workflow that filters and transforms temperature sensor data.
+// Only temperatures above 20°C pass through, with Fahrenheit conversion and alert levels.
+//
+// To test:
+// 1. Run: dotnet run --project src/Gluey.Cli -- run samples/02-smart-sensor.gluey
+// 2. Send (passes filter): curl -X POST http://localhost:8080/webhook \
+//            -H "Content-Type: application/json" \
+//            -d '{"device_id": "sensor-001", "temperature": 25.5, "humidity": 60}'
+// 3. Send (filtered out): curl -X POST http://localhost:8080/webhook \
+//            -H "Content-Type: application/json" \
+//            -d '{"device_id": "sensor-002", "temperature": 18.0, "humidity": 75}'
+//
+// http-app local 1.0.0 {
+//   host: "localhost"
+//   port http: 8080
+//   auth: []
+// }
+//
+// json sensor-reading 1.0.0 {
+//   properties: {
+//     device_id: text 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Device ID" }
+//       description: { "en-US": "Sensor identifier" }
+//     }
+//     temperature: float64 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Temperature" }
+//       description: { "en-US": "Temperature in degrees Celsius" }
+//     }
+//     humidity: float64 1.0.0 {
+//       required: true
+//       displayName: { "en-US": "Humidity" }
+//       description: { "en-US": "Relative humidity percentage" }
+//     }
+//   }
+// }
+//
+// json ok 1.0.0 {
+//   properties: {
+//     status: text 1.0.0 {
+//       required: true
+//       const: "ok"
+//       displayName: { "en-US": "Status" }
+//       description: { "en-US": "Acknowledgement status" }
+//     }
+//   }
+// }
+//
+// http-endpoint sensor-webhook 1.0.0 {
+//   app: local 1.0.0
+//   plugin: http 1.1.0
+//   method: POST
+//   path: "/webhook"
+//   payload: json sensor-reading 1.0.0
+//   responses: {
+//     200: json ok 1.0.0
+//   }
+// }
+
+flow smart-sensor 1.0.0 {
+  from http-endpoint sensor-webhook 1.0.0
+
+  | filter(input.temperature > 20)
+  | transform {
+      output.device_id          <- input.device_id
+      output.temperature_celsius <- input.temperature
+      output.temp_fahrenheit     <- input.temperature * 9 / 5 + 32
+      output.humidity            <- input.humidity
+      output.alert_level         <- input.temperature > 30 ? "high" : "normal"
+      output.processed_at        <- now()
+    }
+  | console()
+}

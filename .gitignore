@@ -66,8 +66,9 @@ PublishProfiles/
 .DS_Store
 Thumbs.db
 
-# AI agent files (use AGENTS.md for shared instructions)
+# AI agent files
 CLAUDE.md
+
 prompt.md
 prd.json
 progress.txt

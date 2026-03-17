@@ -1,0 +1,203 @@
+// Demo 5: Advanced Protocol
+// A workflow demonstrating binary header-based routing for industrial protocols.
+// Messages are decoded to extract a header with msg_type field, then routed to
+// different destinations based on message type (status vs telemetry).
+//
+// mqtt-broker-app emqx 1.0.0 {
+//   host: "localhost"
+//   port mqtt: 1883
+//   auth: []
+// }
+//
+// http-app timescaledb 1.0.0 {
+//   host: "localhost"
+//   port http: 5432
+//   auth: db-credentials 1.0.0
+// }
+//
+// binary machine-frame 1.0.0 {
+//   properties: {
+//     magic: uint16 1.0.0 {
+//       required: true
+//       offset: 0
+//       length: 2
+//       endian: "big"
+//       displayName: { "en-US": "Magic" }
+//       description: { "en-US": "Protocol magic bytes 0xABCD" }
+//     }
+//     version: uint8 1.0.0 {
+//       required: true
+//       offset: 2
+//       length: 1
+//       displayName: { "en-US": "Version" }
+//       description: { "en-US": "Protocol version" }
+//     }
+//     msg_type: uint8 1.0.0 {
+//       required: true
+//       offset: 3
+//       length: 1
+//       displayName: { "en-US": "Message Type" }
+//       description: { "en-US": "1=status, 2=telemetry" }
+//     }
+//     payload_length: uint16 1.0.0 {
+//       required: true
+//       offset: 4
+//       length: 2
+//       endian: "big"
+//       displayName: { "en-US": "Payload Length" }
+//       description: { "en-US": "Length of payload after header" }
+//     }
+//     machine_id: text 1.0.0 {
+//       required: true
+//       offset: 6
+//       length: 4
+//       encoding: "ascii"
+//       displayName: { "en-US": "Machine ID" }
+//       description: { "en-US": "Machine identifier" }
+//     }
+//     status_code: uint8 1.0.0 {
+//       required: false
+//       offset: 10
+//       length: 1
+//       displayName: { "en-US": "Status Code" }
+//       description: { "en-US": "0=healthy, 1+=error code (msg_type=1 only)" }
+//     }
+//     error_flags: uint16 1.0.0 {
+//       required: false
+//       offset: 11
+//       length: 2
+//       endian: "big"
+//       displayName: { "en-US": "Error Flags" }
+//       description: { "en-US": "Bit flags for error conditions (msg_type=1 only)" }
+//     }
+//     uptime: uint32 1.0.0 {
+//       required: false
+//       offset: 13
+//       length: 4
+//       endian: "big"
+//       displayName: { "en-US": "Uptime" }
+//       description: { "en-US": "Seconds since boot (msg_type=1 only)" }
+//     }
+//     temperature: int16 1.0.0 {
+//       required: false
+//       offset: 10
+//       length: 2
+//       endian: "big"
+//       displayName: { "en-US": "Temperature" }
+//       description: { "en-US": "Temperature in tenths of degree Celsius (msg_type=2 only)" }
+//     }
+//     pressure: uint32 1.0.0 {
+//       required: false
+//       offset: 12
+//       length: 4
+//       endian: "big"
+//       displayName: { "en-US": "Pressure" }
+//       description: { "en-US": "Pressure in Pascals (msg_type=2 only)" }
+//     }
+//     rpm: uint16 1.0.0 {
+//       required: false
+//       offset: 16
+//       length: 2
+//       endian: "big"
+//       displayName: { "en-US": "RPM" }
+//       description: { "en-US": "Rotations per minute (msg_type=2 only)" }
+//     }
+//   }
+// }
+//
+// json machine-status 1.0.0 {
+//   properties: {
+//     machine_id: text 1.0.0 { required: true }
+//     is_healthy: bool 1.0.0 { required: true }
+//     error_flags: int32 1.0.0 { required: true }
+//     uptime_hours: float64 1.0.0 { required: true }
+//     recorded_at: timestamp 1.0.0 { required: true }
+//   }
+// }
+//
+// json machine-telemetry 1.0.0 {
+//   properties: {
+//     machine_id: text 1.0.0 { required: true }
+//     temperature_celsius: float64 1.0.0 { required: true }
+//     pressure_bar: float64 1.0.0 { required: true }
+//     rpm: int32 1.0.0 { required: true }
+//     recorded_at: timestamp 1.0.0 { required: true }
+//   }
+// }
+//
+// json ok 1.0.0 {
+//   properties: {
+//     status: text 1.0.0 { required: true, const: "ok" }
+//   }
+// }
+//
+// json db-error 1.0.0 {
+//   properties: {
+//     error: text 1.0.0 { required: true }
+//   }
+// }
+//
+// mqtt-subscription machine-data 1.0.0 {
+//   app: emqx 1.0.0
+//   plugin: mqtt 5.0.0
+//   topic: "machines/+/data" {
+//     0: text 1.0.0 { const: "machines" }
+//     1: text 1.0.0 {
+//       name: "machine_id"
+//       required: true
+//       displayName: { "en-US": "Machine ID" }
+//       description: { "en-US": "Machine identifier" }
+//     }
+//     2: text 1.0.0 { const: "data" }
+//   }
+//   qos: 1
+//   payload: binary machine-frame 1.0.0
+// }
+//
+// http-endpoint store-status 1.0.0 {
+//   app: timescaledb 1.0.0
+//   plugin: http 2.0.0
+//   method: POST
+//   path: "/v1/machine_status"
+//   headers: db-write-headers 1.0.0
+//   payload: json machine-status 1.0.0
+//   responses: {
+//     201: json ok 1.0.0
+//     default: json db-error 1.0.0
+//   }
+// }
+//
+// http-endpoint store-telemetry 1.0.0 {
+//   app: timescaledb 1.0.0
+//   plugin: http 2.0.0
+//   method: POST
+//   path: "/v1/machine_telemetry"
+//   headers: db-write-headers 1.0.0
+//   payload: json machine-telemetry 1.0.0
+//   responses: {
+//     201: json ok 1.0.0
+//     default: json db-error 1.0.0
+//   }
+// }
+
+flow advanced-protocol 1.0.0 {
+  from mqtt-subscription machine-data 1.0.0
+
+  | transform {
+      output.msg_type            <- input.msg_type
+      output.machine_id          <- input.machine_id
+      output.is_healthy          <- input.status_code == 0
+      output.error_flags         <- input.error_flags
+      output.uptime_hours        <- input.uptime / 3600
+      output.temperature_celsius <- input.temperature / 10
+      output.pressure_bar        <- input.pressure / 100000
+      output.rpm                 <- input.rpm
+      output.recorded_at         <- now()
+    }
+
+  | gateway exclusive {
+      input.msg_type == 1 -> to http-endpoint store-status 1.0.0
+      input.msg_type == 2 -> to http-endpoint store-telemetry 1.0.0
+      default             -> console()
+    }
+}
