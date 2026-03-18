@@ -167,7 +167,8 @@ public sealed class WorkflowManager : IAsyncDisposable
                     instance.Transforms!,
                     instance.Output,
                     instance.RouteOutputs,
-                    _logger);
+                    _logger,
+                    instance.Info.Name);
             }
             else
             {
@@ -175,7 +176,8 @@ public sealed class WorkflowManager : IAsyncDisposable
                     instance.Input!,
                     instance.Transforms!,
                     instance.Output!,
-                    _logger);
+                    _logger,
+                    instance.Info.Name);
             }
 
             // Start the workflow

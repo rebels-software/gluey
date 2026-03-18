@@ -50,11 +50,19 @@ public sealed class WorkflowRunner
     private static string GetDisplayName(string type) =>
         TransformDisplayNames.TryGetValue(type, out var name) ? name : type;
 
+    /// <summary>
+    /// Prefixes a log message with the workflow name when running in daemon mode.
+    /// In single-run mode (workflowName is null), the message is returned unchanged.
+    /// </summary>
+    private string Log(string message) =>
+        _workflowName != null ? $"[{_workflowName}] {message}" : message;
+
     private readonly IInputPlugin _input;
     private readonly IReadOnlyList<ITransformPlugin> _transforms;
     private readonly IOutputPlugin? _defaultOutput;
     private readonly IReadOnlyDictionary<string, RoutePipeline> _routeOutputs;
     private readonly ILogger? _logger;
+    private readonly string? _workflowName;
 
     /// <summary>
     /// Creates a new WorkflowRunner with a single output (no routing).
@@ -63,12 +71,14 @@ public sealed class WorkflowRunner
     /// <param name="transforms">The transform plugins to apply in sequence.</param>
     /// <param name="output">The output plugin to write messages to.</param>
     /// <param name="logger">Optional logger for pipeline message tracing.</param>
+    /// <param name="workflowName">Optional workflow name to prefix in log messages (used in daemon mode).</param>
     public WorkflowRunner(
         IInputPlugin input,
         IReadOnlyList<ITransformPlugin> transforms,
         IOutputPlugin output,
-        ILogger? logger = null)
-        : this(input, transforms, output, new Dictionary<string, RoutePipeline>(), logger)
+        ILogger? logger = null,
+        string? workflowName = null)
+        : this(input, transforms, output, new Dictionary<string, RoutePipeline>(), logger, workflowName)
     {
     }
 
@@ -80,18 +90,21 @@ public sealed class WorkflowRunner
     /// <param name="defaultOutput">The default output plugin (used when no route matches or routing is disabled). Can be null if all messages must route.</param>
     /// <param name="routeOutputs">Dictionary mapping route names to their output pipelines.</param>
     /// <param name="logger">Optional logger for pipeline message tracing.</param>
+    /// <param name="workflowName">Optional workflow name to prefix in log messages (used in daemon mode).</param>
     public WorkflowRunner(
         IInputPlugin input,
         IReadOnlyList<ITransformPlugin> transforms,
         IOutputPlugin? defaultOutput,
         IReadOnlyDictionary<string, RoutePipeline> routeOutputs,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        string? workflowName = null)
     {
         _input = input ?? throw new ArgumentNullException(nameof(input));
         _transforms = transforms ?? throw new ArgumentNullException(nameof(transforms));
         _defaultOutput = defaultOutput;
         _routeOutputs = routeOutputs ?? throw new ArgumentNullException(nameof(routeOutputs));
         _logger = logger;
+        _workflowName = workflowName;
 
         // At least one output must be configured
         if (_defaultOutput == null && _routeOutputs.Count == 0)
@@ -128,18 +141,18 @@ public sealed class WorkflowRunner
                     if (currentMessage is null)
                     {
                         // Message was filtered - log and break out of transform loop
-                        _logger?.LogInformation("Message filtered by {Type}", GetDisplayName(transform.Type));
+                        _logger?.LogInformation("{Message}", Log($"Message filtered by {GetDisplayName(transform.Type)}"));
                         filtered = true;
                         break;
                     }
 
                     if (transform.Type == "route" && currentMessage.Metadata.TryGetValue(RouteMetadataKey, out var appliedRoute))
                     {
-                        _logger?.LogInformation("Route applied: {Route}", appliedRoute);
+                        _logger?.LogInformation("{Message}", Log($"Route applied: {appliedRoute}"));
                     }
                     else
                     {
-                        _logger?.LogInformation("{Type} applied", GetDisplayName(transform.Type));
+                        _logger?.LogInformation("{Message}", Log($"{GetDisplayName(transform.Type)} applied"));
                     }
                 }
 
@@ -166,11 +179,11 @@ public sealed class WorkflowRunner
         var source = message.Metadata.TryGetValue("source", out var s) ? s : "unknown";
         if (message.Metadata.TryGetValue("topic", out var topic))
         {
-            _logger.LogInformation("Message received from {Source} (topic: {Topic})", source, topic);
+            _logger.LogInformation("{Message}", Log($"Message received from {source} (topic: {topic})"));
         }
         else
         {
-            _logger.LogInformation("Message received from {Source}", source);
+            _logger.LogInformation("{Message}", Log($"Message received from {source}"));
         }
     }
 
@@ -208,11 +221,11 @@ public sealed class WorkflowRunner
             var detail = output.ToString();
             if (detail != null && detail != output.GetType().ToString())
             {
-                _logger?.LogInformation("Output {Detail}: written", detail);
+                _logger?.LogInformation("{Message}", Log($"Output {detail}: written"));
             }
             else
             {
-                _logger?.LogInformation("Output {Type}: written", output.Type);
+                _logger?.LogInformation("{Message}", Log($"Output {output.Type}: written"));
             }
         }
         catch (OperationCanceledException)
@@ -221,7 +234,7 @@ public sealed class WorkflowRunner
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning("Output {Type}: {Error}", output.Type, ex.Message);
+            _logger?.LogWarning("{Message}", Log($"Output {output.Type}: {ex.Message}"));
         }
     }
 
@@ -247,11 +260,11 @@ public sealed class WorkflowRunner
             if (currentMessage is null)
             {
                 // Message was filtered by route transform - log and drop it
-                _logger?.LogInformation("Message filtered by {Type}", GetDisplayName(transform.Type));
+                _logger?.LogInformation("{Message}", Log($"Message filtered by {GetDisplayName(transform.Type)}"));
                 return;
             }
 
-            _logger?.LogInformation("{Type} applied", GetDisplayName(transform.Type));
+            _logger?.LogInformation("{Message}", Log($"{GetDisplayName(transform.Type)} applied"));
         }
 
         // Fan-out to all route outputs in parallel; errors in one don't stop others
