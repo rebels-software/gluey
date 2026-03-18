@@ -253,6 +253,12 @@ public sealed class SqlOutput : IOutputPlugin
     internal SqlDialect GetDialectForTesting() => _dialect;
 
     /// <summary>
+    /// Returns a human-readable description of the output target (procedure name or table name).
+    /// </summary>
+    public override string ToString() =>
+        _procedure != null ? $"sql(procedure: {_procedure})" : $"sql(table: {_table})";
+
+    /// <summary>
     /// Returns the parsed upsert keys. For testing purposes.
     /// </summary>
     internal IReadOnlyList<UpsertKeyMapping> GetUpsertKeysForTesting() => _upsertKeys;

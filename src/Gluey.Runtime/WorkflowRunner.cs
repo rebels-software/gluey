@@ -112,7 +112,14 @@ public sealed class WorkflowRunner
                         break;
                     }
 
-                    _logger?.LogInformation("Transform {Type} applied", transform.Type);
+                    if (transform.Type == "route" && currentMessage.Metadata.TryGetValue(RouteMetadataKey, out var appliedRoute))
+                    {
+                        _logger?.LogInformation("Route applied: {Route}", appliedRoute);
+                    }
+                    else
+                    {
+                        _logger?.LogInformation("Transform {Type} applied", transform.Type);
+                    }
                 }
 
                 // If message survived all transforms, route to appropriate output
@@ -177,7 +184,15 @@ public sealed class WorkflowRunner
         try
         {
             await output.WriteAsync(message, cancellationToken).ConfigureAwait(false);
-            _logger?.LogInformation("Output {Type}: written", output.Type);
+            var detail = output.ToString();
+            if (detail != null && detail != output.GetType().ToString())
+            {
+                _logger?.LogInformation("Output {Detail}: written", detail);
+            }
+            else
+            {
+                _logger?.LogInformation("Output {Type}: written", output.Type);
+            }
         }
         catch (OperationCanceledException)
         {
