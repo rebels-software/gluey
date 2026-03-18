@@ -32,10 +32,13 @@ public sealed class MqttPublisherOutput : IOutputPlugin
     private static readonly Regex InterpolationPattern = new(@"\{\{(\w+(?:\.\w+)*)\}\}", RegexOptions.Compiled);
 
     private IMqttClient? _mqttClient;
+    private MqttClientOptions? _connectOptions;
     private string _topic = "";
     private MqttQualityOfServiceLevel _qos = MqttQualityOfServiceLevel.AtLeastOnce;
     private bool _retain;
+    private bool _disposing;
     private bool _disposed;
+    private int _reconnectAttempts;
 
     public string Type => "mqtt";
 
@@ -160,9 +163,49 @@ public sealed class MqttPublisherOutput : IOutputPlugin
         }
 
         var options = optionsBuilder.Build();
+        _connectOptions = options;
+
+        // Set up disconnect handler for auto-reconnect
+        _mqttClient.DisconnectedAsync += OnDisconnectedAsync;
 
         // Connect to broker
+        Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT pub: Connecting to {host}:{port}");
         await _mqttClient.ConnectAsync(options, cancellationToken);
+        Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT pub: Connected");
+    }
+
+    /// <summary>
+    /// Handles disconnection events by attempting to reconnect with exponential backoff.
+    /// </summary>
+    private async Task OnDisconnectedAsync(MqttClientDisconnectedEventArgs e)
+    {
+        if (_disposing) return;
+
+        Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT pub: Disconnected from broker ({e.Reason})");
+
+        while (!_disposing)
+        {
+            _reconnectAttempts++;
+            var delay = Math.Min(1000 * (1 << Math.Min(_reconnectAttempts - 1, 4)), 30000);
+            Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT pub: Reconnecting in {delay / 1000}s (attempt {_reconnectAttempts})");
+
+            await Task.Delay(delay);
+            if (_disposing) return;
+
+            try
+            {
+                await _mqttClient!.ConnectAsync(_connectOptions!);
+                _reconnectAttempts = 0;
+                Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT pub: Reconnected successfully");
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT pub: Reconnect failed: {ex.Message}");
+            }
+        }
+
+        Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT pub: Reconnect abandoned (disposing)");
     }
 
     /// <summary>
@@ -173,7 +216,7 @@ public sealed class MqttPublisherOutput : IOutputPlugin
     {
         if (_mqttClient == null || !_mqttClient.IsConnected)
         {
-            throw new InvalidOperationException("MQTT client is not connected.");
+            throw new InvalidOperationException("MQTT client is reconnecting, message dropped");
         }
 
         // Interpolate topic with message fields
@@ -245,6 +288,7 @@ public sealed class MqttPublisherOutput : IOutputPlugin
         }
 
         _disposed = true;
+        _disposing = true;
 
         // Disconnect and dispose MQTT client
         if (_mqttClient != null)

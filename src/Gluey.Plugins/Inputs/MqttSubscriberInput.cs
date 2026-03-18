@@ -31,7 +31,11 @@ public sealed class MqttSubscriberInput : IInputPlugin
 {
     private readonly Channel<Message> _channel;
     private IMqttClient? _mqttClient;
+    private MqttClientOptions? _connectOptions;
+    private MqttClientSubscribeOptions? _subscribeOptions;
+    private bool _disposing;
     private bool _disposed;
+    private int _reconnectAttempts;
 
     public string Type => "mqtt";
 
@@ -193,6 +197,10 @@ public sealed class MqttSubscriberInput : IInputPlugin
         }
 
         var options = optionsBuilder.Build();
+        _connectOptions = options;
+
+        // Set up disconnect handler for auto-reconnect
+        _mqttClient.DisconnectedAsync += OnDisconnectedAsync;
 
         // Set up message handler before connecting
         _mqttClient.ApplicationMessageReceivedAsync += async e =>
@@ -250,7 +258,9 @@ public sealed class MqttSubscriberInput : IInputPlugin
         };
 
         // Connect to broker
+        Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT sub: Connecting to {host}:{port}");
         await _mqttClient.ConnectAsync(options, cancellationToken);
+        Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT sub: Connected");
 
         // Subscribe to topics
         var subscribeOptionsBuilder = new MqttClientSubscribeOptionsBuilder();
@@ -259,7 +269,49 @@ public sealed class MqttSubscriberInput : IInputPlugin
             subscribeOptionsBuilder.WithTopicFilter(topic, qos);
         }
 
-        await _mqttClient.SubscribeAsync(subscribeOptionsBuilder.Build(), cancellationToken);
+        _subscribeOptions = subscribeOptionsBuilder.Build();
+        await _mqttClient.SubscribeAsync(_subscribeOptions, cancellationToken);
+    }
+
+    /// <summary>
+    /// Handles disconnection events by attempting to reconnect with exponential backoff.
+    /// </summary>
+    private async Task OnDisconnectedAsync(MqttClientDisconnectedEventArgs e)
+    {
+        if (_disposing) return;
+
+        Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT sub: Disconnected from broker ({e.Reason})");
+
+        while (!_disposing)
+        {
+            _reconnectAttempts++;
+            var delay = Math.Min(1000 * (1 << Math.Min(_reconnectAttempts - 1, 4)), 30000);
+            Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT sub: Reconnecting in {delay / 1000}s (attempt {_reconnectAttempts})");
+
+            await Task.Delay(delay);
+            if (_disposing) return;
+
+            try
+            {
+                await _mqttClient!.ConnectAsync(_connectOptions!);
+
+                // Re-subscribe to all topics (clean session loses subscriptions)
+                if (_subscribeOptions != null)
+                {
+                    await _mqttClient.SubscribeAsync(_subscribeOptions);
+                }
+
+                _reconnectAttempts = 0;
+                Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT sub: Reconnected successfully");
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT sub: Reconnect failed: {ex.Message}");
+            }
+        }
+
+        Console.Error.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] MQTT sub: Reconnect abandoned (disposing)");
     }
 
     /// <summary>
@@ -284,6 +336,7 @@ public sealed class MqttSubscriberInput : IInputPlugin
         }
 
         _disposed = true;
+        _disposing = true;
 
         // Complete the channel writer
         _channel.Writer.Complete();
