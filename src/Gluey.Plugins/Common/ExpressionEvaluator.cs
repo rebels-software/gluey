@@ -732,6 +732,8 @@ public sealed class ExpressionEvaluator
         return current.ValueKind switch
         {
             JsonValueKind.String => current.GetString(),
+            JsonValueKind.Number when current.TryGetInt32(out var intVal) => intVal,
+            JsonValueKind.Number when current.TryGetInt64(out var longVal) => longVal,
             JsonValueKind.Number => current.GetDouble(),
             JsonValueKind.True => true,
             JsonValueKind.False => false,
@@ -864,6 +866,8 @@ public sealed class ExpressionEvaluator
         return current.ValueKind switch
         {
             JsonValueKind.String => current.GetString(),
+            JsonValueKind.Number when current.TryGetInt32(out var intVal) => intVal,
+            JsonValueKind.Number when current.TryGetInt64(out var longVal) => longVal,
             JsonValueKind.Number => current.GetDouble(),
             JsonValueKind.True => true,
             JsonValueKind.False => false,
