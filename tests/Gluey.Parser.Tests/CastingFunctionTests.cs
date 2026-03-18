@@ -13,7 +13,9 @@
 // limitations under the License.
 
 using System.Text.Json;
+using Gluey.Core.Models;
 using Gluey.Plugins.Common;
+using Gluey.Plugins.Transforms;
 
 namespace Gluey.Parser.Tests;
 
@@ -394,6 +396,114 @@ public class CastingFunctionTests
         var result = evaluator.Evaluate("int(code) > 0 ? \"positive\" : \"zero\"");
 
         Assert.Equal("zero", result);
+    }
+
+    // ===== float() serialization round-trip tests =====
+    // These tests verify that float() values survive JSON serialization in TransformTransform
+    // without being misidentified as integers by downstream consumers (e.g. SqlOutput.GetFieldValue).
+
+    [Fact]
+    public async Task TransformTransform_FloatWholeNumber_SerializesWithDecimalPoint()
+    {
+        // float(5) -> double 5.0 -> must serialize as "5.0" not "5"
+        // so that JsonElement.TryGetInt32() returns false downstream
+        var transform = new TransformTransform();
+        var config = new Dictionary<string, JsonElement>
+        {
+            ["ok_count"] = JsonDocument.Parse("\"float(OK)\"").RootElement
+        };
+        await transform.InitializeAsync(config);
+
+        var payloadJson = JsonDocument.Parse("{\"OK\":5}");
+        var message = Message.Create(payloadJson);
+
+        var result = await transform.ProcessAsync(message);
+
+        Assert.NotNull(result);
+        var field = result!.Payload.RootElement.GetProperty("ok_count");
+
+        // Must be a JSON number
+        Assert.Equal(JsonValueKind.Number, field.ValueKind);
+
+        // Must NOT parse as int (raw JSON must contain a decimal point)
+        Assert.False(field.TryGetInt32(out _),
+            "float() whole-number result should not be read as int32; expected '5.0' in JSON, not '5'");
+
+        // Must parse as double with correct value
+        Assert.True(field.TryGetDouble(out var d));
+        Assert.Equal(5.0, d);
+    }
+
+    [Fact]
+    public async Task TransformTransform_FloatFractional_StillSerializesCorrectly()
+    {
+        // float(5.5) -> 5.5 is non-whole, so JsonValueKind.Number with decimal already
+        var transform = new TransformTransform();
+        var config = new Dictionary<string, JsonElement>
+        {
+            ["ratio"] = JsonDocument.Parse("\"float(value)\"").RootElement
+        };
+        await transform.InitializeAsync(config);
+
+        var payloadJson = JsonDocument.Parse("{\"value\":5.5}");
+        var message = Message.Create(payloadJson);
+
+        var result = await transform.ProcessAsync(message);
+
+        Assert.NotNull(result);
+        var field = result!.Payload.RootElement.GetProperty("ratio");
+        Assert.Equal(JsonValueKind.Number, field.ValueKind);
+        Assert.True(field.TryGetDouble(out var d));
+        Assert.Equal(5.5, d);
+    }
+
+    [Fact]
+    public async Task TransformTransform_IntExpression_StillSerializesAsInt()
+    {
+        // int(5) -> long 5 -> must serialize as "5" (no decimal) so it reads back as int
+        var transform = new TransformTransform();
+        var config = new Dictionary<string, JsonElement>
+        {
+            ["count"] = JsonDocument.Parse("\"int(value)\"").RootElement
+        };
+        await transform.InitializeAsync(config);
+
+        var payloadJson = JsonDocument.Parse("{\"value\":5}");
+        var message = Message.Create(payloadJson);
+
+        var result = await transform.ProcessAsync(message);
+
+        Assert.NotNull(result);
+        var field = result!.Payload.RootElement.GetProperty("count");
+        Assert.Equal(JsonValueKind.Number, field.ValueKind);
+
+        // int() values should still parse as int32
+        Assert.True(field.TryGetInt32(out var i));
+        Assert.Equal(5, i);
+    }
+
+    [Fact]
+    public async Task TransformTransform_FloatZero_SerializesWithDecimalPoint()
+    {
+        // float(0) -> double 0.0 -> must serialize as "0.0" not "0"
+        var transform = new TransformTransform();
+        var config = new Dictionary<string, JsonElement>
+        {
+            ["val"] = JsonDocument.Parse("\"float(x)\"").RootElement
+        };
+        await transform.InitializeAsync(config);
+
+        var payloadJson = JsonDocument.Parse("{\"x\":0}");
+        var message = Message.Create(payloadJson);
+
+        var result = await transform.ProcessAsync(message);
+
+        Assert.NotNull(result);
+        var field = result!.Payload.RootElement.GetProperty("val");
+        Assert.False(field.TryGetInt32(out _),
+            "float(0) should serialize as 0.0 not 0");
+        Assert.True(field.TryGetDouble(out var d));
+        Assert.Equal(0.0, d);
     }
 
     [Fact]

@@ -13,11 +13,40 @@
 // limitations under the License.
 
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Gluey.Core.Abstractions;
 using Gluey.Core.Models;
 using Gluey.Plugins.Common;
 
 namespace Gluey.Plugins.Transforms;
+
+/// <summary>
+/// JSON converter that always writes doubles with a decimal point, even for whole numbers.
+/// This preserves the floating-point nature of values through the JSON serialization round-trip,
+/// ensuring that consumers reading the JSON can distinguish between integer and floating-point values.
+/// For example, <c>5.0</c> is written as <c>5.0</c> rather than <c>5</c>, so that
+/// <c>JsonElement.TryGetInt32()</c> returns <c>false</c> and the value is correctly
+/// read back as a double by downstream consumers such as SQL parameter binding.
+/// </summary>
+internal sealed class DoubleWithDecimalConverter : JsonConverter<double>
+{
+    public override double Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        => reader.GetDouble();
+
+    public override void Write(Utf8JsonWriter writer, double value, JsonSerializerOptions options)
+    {
+        // For whole-number doubles, always include a decimal point so the JSON token
+        // cannot be parsed as an integer by TryGetInt32/TryGetInt64.
+        if (double.IsFinite(value) && value == Math.Floor(value))
+        {
+            writer.WriteRawValue(value.ToString("0.0#################", System.Globalization.CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            writer.WriteNumberValue(value);
+        }
+    }
+}
 
 /// <summary>
 /// Transform plugin that creates a new payload from field mappings.
@@ -36,6 +65,11 @@ namespace Gluey.Plugins.Transforms;
 /// </remarks>
 public sealed class TransformTransform : ITransformPlugin
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        Converters = { new DoubleWithDecimalConverter() }
+    };
+
     private Dictionary<string, string> _mappings = new();
 
     public string Type => "transform";
@@ -88,8 +122,12 @@ public sealed class TransformTransform : ITransformPlugin
                 result[mapping.Key] = value;
             }
 
-            // Create new JsonDocument from result
-            var jsonString = JsonSerializer.Serialize(result);
+            // Create new JsonDocument from result.
+            // Use SerializerOptions with DoubleWithDecimalConverter so that whole-number doubles
+            // (e.g. float(5) -> 5.0) are written as "5.0" rather than "5" in the JSON output.
+            // This prevents JsonElement.TryGetInt32() from matching them downstream (e.g. in SqlOutput),
+            // ensuring float values are correctly bound as double-precision SQL parameters.
+            var jsonString = JsonSerializer.Serialize(result, SerializerOptions);
             var newPayload = JsonDocument.Parse(jsonString);
 
             return Task.FromResult<Message?>(message.WithPayload(newPayload));
