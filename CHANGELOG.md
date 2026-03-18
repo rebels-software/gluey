@@ -2,6 +2,12 @@
 
 All notable changes to Gluey CLI are documented here.
 
+## [0.2.10] - 2026-03-18
+### Improved
+- Pipeline logs now show friendly transform names (e.g., "JSON Parse" instead of "Transform json.parse")
+- Pipeline logs in daemon mode now include workflow name prefix (e.g., `[my-workflow] JSON Parse applied`)
+- Route logs show matched route name; SQL output logs show procedure/table target
+
 ## [0.2.9] - 2026-03-12
 ### Added
 - SQLite dialect support for the `sql()` output plugin
