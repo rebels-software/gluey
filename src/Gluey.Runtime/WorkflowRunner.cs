@@ -29,6 +29,27 @@ public sealed class WorkflowRunner
     /// </summary>
     public const string RouteMetadataKey = "_route";
 
+    /// <summary>
+    /// Maps plugin type strings to human-friendly display names for log messages.
+    /// </summary>
+    private static readonly Dictionary<string, string> TransformDisplayNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["json.parse"] = "JSON Parse",
+        ["filter"] = "Filter",
+        ["transform"] = "Transform",
+        ["decode.binary"] = "Binary Decode",
+        ["decode.base64"] = "Base64 Decode",
+        ["decode.hex"] = "Hex Decode",
+        ["route"] = "Route",
+        ["validate_schema"] = "Schema Validate",
+    };
+
+    /// <summary>
+    /// Returns the friendly display name for a plugin type, or the raw type if no mapping exists.
+    /// </summary>
+    private static string GetDisplayName(string type) =>
+        TransformDisplayNames.TryGetValue(type, out var name) ? name : type;
+
     private readonly IInputPlugin _input;
     private readonly IReadOnlyList<ITransformPlugin> _transforms;
     private readonly IOutputPlugin? _defaultOutput;
@@ -107,7 +128,7 @@ public sealed class WorkflowRunner
                     if (currentMessage is null)
                     {
                         // Message was filtered - log and break out of transform loop
-                        _logger?.LogInformation("Message filtered by {Type}", transform.Type);
+                        _logger?.LogInformation("Message filtered by {Type}", GetDisplayName(transform.Type));
                         filtered = true;
                         break;
                     }
@@ -118,7 +139,7 @@ public sealed class WorkflowRunner
                     }
                     else
                     {
-                        _logger?.LogInformation("Transform {Type} applied", transform.Type);
+                        _logger?.LogInformation("{Type} applied", GetDisplayName(transform.Type));
                     }
                 }
 
@@ -226,11 +247,11 @@ public sealed class WorkflowRunner
             if (currentMessage is null)
             {
                 // Message was filtered by route transform - log and drop it
-                _logger?.LogInformation("Message filtered by {Type}", transform.Type);
+                _logger?.LogInformation("Message filtered by {Type}", GetDisplayName(transform.Type));
                 return;
             }
 
-            _logger?.LogInformation("Transform {Type} applied", transform.Type);
+            _logger?.LogInformation("{Type} applied", GetDisplayName(transform.Type));
         }
 
         // Fan-out to all route outputs in parallel; errors in one don't stop others
