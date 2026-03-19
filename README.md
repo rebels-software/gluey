@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://github.com/rebels-software/gluey/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rebels-software/gluey/ci.yml?branch=develop&style=for-the-badge&label=Build" alt="Build Status"></a>
-  <a href="https://github.com/rebels-software/gluey/releases/latest"><img src="https://img.shields.io/badge/Version-0.2.10-brightgreen?style=for-the-badge" alt="Version 0.2.10"></a>
+  <a href="https://github.com/rebels-software/gluey/releases/latest"><img src="https://img.shields.io/badge/Version-0.2.11-brightgreen?style=for-the-badge" alt="Version 0.2.11"></a>
   <a href="https://github.com/rebels-software/gluey/pkgs/container/gluey"><img src="https://img.shields.io/badge/Docker-ghcr.io-blue?style=for-the-badge&logo=docker" alt="Docker Image"></a>
   <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge" alt="Apache License 2.0"></a>
 </p>

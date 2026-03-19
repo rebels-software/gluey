@@ -2,6 +2,15 @@
 
 All notable changes to Gluey CLI are documented here.
 
+## [0.2.11] - 2026-03-19
+### Added
+- `mode: all` option for route transform — sends messages to all matching routes instead of first match
+- MQTT auto-reconnect with exponential backoff (1s to 30s) for both subscriber and publisher plugins
+- MQTT connection event logging (connect, disconnect, reconnect attempts)
+
+### Fixed
+- Integer types now preserved through ExpressionEvaluator — prevents PostgreSQL stored procedure type mismatches
+
 ## [0.2.10] - 2026-03-18
 ### Improved
 - Pipeline logs now show friendly transform names (e.g., "JSON Parse" instead of "Transform json.parse")
