@@ -106,6 +106,10 @@ public sealed class Parser
                 {
                     foreach (var kvp in step.Config)
                     {
+                        // Skip internal config keys (e.g., _route_mode)
+                        if (kvp.Key.StartsWith('_'))
+                            continue;
+
                         var condition = kvp.Value.ValueKind == System.Text.Json.JsonValueKind.String
                             ? kvp.Value.GetString()!
                             : kvp.Value.ToString();
@@ -351,6 +355,7 @@ public sealed class Parser
     /// <summary>
     /// Parses a route conditions block: { name: condition, name2: condition2, ... }
     /// Conditions are expressions like "temperature > 35" or "*" for catch-all.
+    /// Supports optional "mode" key (e.g., "mode: all" or "mode: first") stored as "_route_mode".
     /// </summary>
     private Dictionary<string, JsonElement> ParseRouteConditionsBlock()
     {
@@ -376,6 +381,25 @@ public sealed class Parser
 
             // Expect colon
             Expect(TokenType.Colon, "Expected ':' after route name");
+
+            // Check for "mode" option — store as "_route_mode" to avoid collision with route names
+            if (key == "mode")
+            {
+                var modeToken = Expect(TokenType.Identifier, "Expected mode value ('first' or 'all')");
+                var modeValue = modeToken.Value;
+                if (modeValue != "first" && modeValue != "all")
+                {
+                    throw new ParseException($"Invalid route mode '{modeValue}'. Expected 'first' or 'all'", modeToken);
+                }
+                config["_route_mode"] = JsonSerializer.SerializeToElement(modeValue);
+
+                // Optional comma between entries
+                if (Check(TokenType.Comma))
+                {
+                    Advance();
+                }
+                continue;
+            }
 
             // Parse condition expression or catch-all "*"
             string condition;

@@ -526,17 +526,22 @@ flow hex-decoder v1.0 {
 
 ### route
 
-Routes messages to different outputs based on conditions. The first matching condition wins. Sets `_route` metadata for the WorkflowRunner.
+Routes messages to different outputs based on conditions. By default, the first matching condition wins. Sets `_route` metadata for the WorkflowRunner.
 
 **Config Options**
 
-Configuration is a map of route names to condition expressions:
+Configuration is a map of route names to condition expressions, plus an optional `mode` setting:
 
 ```gflow
 | route {
+    mode: all
     route_name: condition_expression
   }
 ```
+
+| Option | Values | Description |
+|--------|--------|-------------|
+| `mode` | `first` (default), `all` | `first` stops at the first match. `all` sends to every matching route. |
 
 **Special Conditions**
 
@@ -587,6 +592,37 @@ flow alert-router v1.0 {
   normal_data -> console()
 }
 ```
+
+**Multi-Route (mode: all)**
+
+Send a message to all matching routes instead of just the first match:
+
+```gflow
+flow multi-route v1.0 {
+  from http("/webhook")
+  | json.parse(payload)
+  | route {
+      mode: all
+      ok: ok_count > 0
+      nok: nok_count > 0
+      audit: *
+    }
+
+  ok -> sql("Host=localhost;Database=app") {
+    table: "ok_records"
+    columns: { ok_count: "ok_count" }
+  }
+
+  nok -> sql("Host=localhost;Database=app") {
+    table: "nok_records"
+    columns: { nok_count: "nok_count" }
+  }
+
+  audit -> console()
+}
+```
+
+When `ok_count` and `nok_count` are both greater than zero, the message is delivered to `ok`, `nok`, and `audit` simultaneously. Without `mode: all`, only `ok` (the first match) would fire.
 
 **Fan-out (Multiple Outputs)**
 

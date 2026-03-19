@@ -786,6 +786,161 @@ public class WorkflowRunnerTests
 
     #endregion
 
+    #region Multi-Route Tests (mode: all)
+
+    /// <summary>
+    /// When _route metadata contains comma-separated route names, message is delivered
+    /// to ALL matching route pipelines.
+    /// </summary>
+    [Fact]
+    public async Task MultiRoute_DeliversToAllMatchingPipelines()
+    {
+        // Arrange - message with comma-separated routes
+        var metadata = new Dictionary<string, string> { { "_route", "ok,nok" } };
+        var inputMessage = CreateTestMessage("""{"value": 1}""", metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var okOutput = new MockOutputPlugin();
+        var nokOutput = new MockOutputPlugin();
+        var routeOutputs = new Dictionary<string, RoutePipeline>
+        {
+            { "ok", new RoutePipeline(okOutput) },
+            { "nok", new RoutePipeline(nokOutput) }
+        };
+
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - both outputs received the message
+        Assert.Single(okOutput.WrittenMessages);
+        Assert.Single(nokOutput.WrittenMessages);
+    }
+
+    /// <summary>
+    /// When _route metadata has comma-separated names and some don't match,
+    /// only the matching ones receive the message.
+    /// </summary>
+    [Fact]
+    public async Task MultiRoute_OnlyMatchingPipelinesReceive()
+    {
+        // Arrange - "ok" matches, "missing" does not exist
+        var metadata = new Dictionary<string, string> { { "_route", "ok,missing" } };
+        var inputMessage = CreateTestMessage(metadata: metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var okOutput = new MockOutputPlugin();
+        var routeOutputs = new Dictionary<string, RoutePipeline>
+        {
+            { "ok", new RoutePipeline(okOutput) }
+        };
+
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - only the matched pipeline received the message
+        Assert.Single(okOutput.WrittenMessages);
+    }
+
+    /// <summary>
+    /// When _route metadata has comma-separated names and NONE match any pipeline,
+    /// and there's no default output, the message is dropped.
+    /// </summary>
+    [Fact]
+    public async Task MultiRoute_NoMatchesFallsToDefault()
+    {
+        // Arrange - "x,y" don't match any route; default output exists
+        var metadata = new Dictionary<string, string> { { "_route", "x,y" } };
+        var inputMessage = CreateTestMessage(metadata: metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var defaultOutput = new MockOutputPlugin();
+        var okOutput = new MockOutputPlugin();
+        var routeOutputs = new Dictionary<string, RoutePipeline>
+        {
+            { "ok", new RoutePipeline(okOutput) }
+        };
+
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), defaultOutput, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - falls to default
+        Assert.Single(defaultOutput.WrittenMessages);
+        Assert.Empty(okOutput.WrittenMessages);
+    }
+
+    /// <summary>
+    /// Multi-route fan-out applies route-specific transforms before writing to outputs.
+    /// </summary>
+    [Fact]
+    public async Task MultiRoute_AppliesRouteTransformsBeforeOutput()
+    {
+        // Arrange - both routes have transforms that modify the payload
+        var metadata = new Dictionary<string, string> { { "_route", "enrich1,enrich2" } };
+        var inputMessage = CreateTestMessage("""{"status": "raw"}""", metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var enrichTransform1 = new MockTransformPlugin(m =>
+            m.WithPayload(System.Text.Json.JsonDocument.Parse("""{"status": "enriched1"}""")));
+        var enrichTransform2 = new MockTransformPlugin(m =>
+            m.WithPayload(System.Text.Json.JsonDocument.Parse("""{"status": "enriched2"}""")));
+
+        var output1 = new MockOutputPlugin();
+        var output2 = new MockOutputPlugin();
+
+        var routeOutputs = new Dictionary<string, RoutePipeline>
+        {
+            { "enrich1", new RoutePipeline(new List<ITransformPlugin> { enrichTransform1 }, output1) },
+            { "enrich2", new RoutePipeline(new List<ITransformPlugin> { enrichTransform2 }, output2) }
+        };
+
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), null, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - each route's transform was applied independently
+        Assert.Single(output1.WrittenMessages);
+        Assert.Single(output2.WrittenMessages);
+        Assert.Equal("enriched1", output1.WrittenMessages[0].Payload.RootElement.GetProperty("status").GetString());
+        Assert.Equal("enriched2", output2.WrittenMessages[0].Payload.RootElement.GetProperty("status").GetString());
+    }
+
+    /// <summary>
+    /// Single route value (no comma) still uses the existing single-route behavior.
+    /// </summary>
+    [Fact]
+    public async Task SingleRoute_StillWorksAfterMultiRouteChanges()
+    {
+        // Arrange - single route, no commas
+        var metadata = new Dictionary<string, string> { { "_route", "alert" } };
+        var inputMessage = CreateTestMessage(metadata: metadata);
+        var input = new MockInputPlugin(inputMessage);
+
+        var defaultOutput = new MockOutputPlugin();
+        var alertOutput = new MockOutputPlugin();
+        var routeOutputs = new Dictionary<string, RoutePipeline>
+        {
+            { "alert", new RoutePipeline(alertOutput) }
+        };
+
+        var runner = new WorkflowRunner(input, new List<ITransformPlugin>(), defaultOutput, routeOutputs);
+
+        // Act
+        await runner.RunAsync(CancellationToken.None);
+
+        // Assert - only alert route received it, not default
+        Assert.Empty(defaultOutput.WrittenMessages);
+        Assert.Single(alertOutput.WrittenMessages);
+    }
+
+    #endregion
+
     #region Output Plugin Config Regression Tests (parenthesized connection string / URL)
 
     // Regression: | sql("Host=...") stored the connection string as "field" in Config,

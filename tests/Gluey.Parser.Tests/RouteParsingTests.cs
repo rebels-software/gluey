@@ -207,4 +207,149 @@ flow multi-output v1.0 {
         Assert.Equal("kafka", alertRoute.DestinationSteps[0].Type);
         Assert.Equal("http", alertRoute.DestinationSteps[1].Type);
     }
+
+    #region Route Mode: all Tests
+
+    [Fact]
+    public void Parse_RouteModeAll_StoresInConfig()
+    {
+        var source = @"
+flow mode-all-test v1.0 {
+  from http(""/webhook"")
+
+  | route {
+      mode: all
+      ok: ok_count > 0
+      nok: nok_count > 0
+    }
+
+  ok -> console()
+  nok -> console()
+}";
+
+        var lexer = new GlueyParser.Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new GlueyParser.Parser(tokens);
+        var flow = parser.Parse();
+
+        var routeStep = flow.PipelineSteps.First(s => s.Type == "route");
+
+        // _route_mode should be stored in config
+        Assert.True(routeStep.Config.ContainsKey("_route_mode"));
+        Assert.Equal("all", routeStep.Config["_route_mode"].GetString());
+
+        // Route conditions should still be parsed (mode is not a route condition)
+        Assert.True(routeStep.Config.ContainsKey("ok"));
+        Assert.True(routeStep.Config.ContainsKey("nok"));
+
+        // 3 keys total: _route_mode, ok, nok
+        Assert.Equal(3, routeStep.Config.Count);
+    }
+
+    [Fact]
+    public void Parse_RouteModeFirst_StoresInConfig()
+    {
+        var source = @"
+flow mode-first-test v1.0 {
+  from http(""/webhook"")
+
+  | route {
+      mode: first
+      ok: ok_count > 0
+      nok: nok_count > 0
+    }
+
+  ok -> console()
+  nok -> console()
+}";
+
+        var lexer = new GlueyParser.Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new GlueyParser.Parser(tokens);
+        var flow = parser.Parse();
+
+        var routeStep = flow.PipelineSteps.First(s => s.Type == "route");
+        Assert.True(routeStep.Config.ContainsKey("_route_mode"));
+        Assert.Equal("first", routeStep.Config["_route_mode"].GetString());
+    }
+
+    [Fact]
+    public void Parse_RouteModeInvalid_ThrowsParseException()
+    {
+        var source = @"
+flow invalid-mode v1.0 {
+  from http(""/webhook"")
+
+  | route {
+      mode: random
+      ok: ok_count > 0
+    }
+
+  ok -> console()
+}";
+
+        var lexer = new GlueyParser.Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new GlueyParser.Parser(tokens);
+
+        var ex = Assert.Throws<ParseException>(() => parser.Parse());
+        Assert.Contains("Invalid route mode", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_RouteWithoutMode_HasNoModeInConfig()
+    {
+        var source = @"
+flow no-mode-test v1.0 {
+  from http(""/webhook"")
+
+  | route {
+      ok: ok_count > 0
+      nok: *
+    }
+
+  ok -> console()
+  nok -> console()
+}";
+
+        var lexer = new GlueyParser.Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new GlueyParser.Parser(tokens);
+        var flow = parser.Parse();
+
+        var routeStep = flow.PipelineSteps.First(s => s.Type == "route");
+        Assert.False(routeStep.Config.ContainsKey("_route_mode"));
+        Assert.Equal(2, routeStep.Config.Count);
+    }
+
+    [Fact]
+    public void Parse_RouteModeAll_DoesNotCreateModeRouteDestination()
+    {
+        var source = @"
+flow mode-routes-test v1.0 {
+  from http(""/webhook"")
+
+  | route {
+      mode: all
+      ok: ok_count > 0
+      nok: nok_count > 0
+    }
+
+  ok -> console()
+  nok -> console()
+}";
+
+        var lexer = new GlueyParser.Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new GlueyParser.Parser(tokens);
+        var flow = parser.Parse();
+
+        // Should have exactly 2 route destinations (ok, nok) — NOT 3 (no "mode" route)
+        Assert.Equal(2, flow.Routes.Count);
+        Assert.Contains(flow.Routes, r => r.Name == "ok");
+        Assert.Contains(flow.Routes, r => r.Name == "nok");
+        Assert.DoesNotContain(flow.Routes, r => r.Name == "mode");
+    }
+
+    #endregion
 }

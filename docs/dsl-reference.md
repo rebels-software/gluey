@@ -506,8 +506,28 @@ Conditions are expressions evaluated against the message payload.
 
 **Evaluation Order:**
 1. Conditions are evaluated in order
-2. First matching condition wins
+2. First matching condition wins (default behavior)
 3. Use `*` as catch-all (matches everything)
+
+### Route Mode
+
+By default, the route transform uses "first match wins" behavior. You can change this with the `mode` option.
+
+| Mode | Behavior |
+|------|----------|
+| `first` | First matching condition wins (default) |
+| `all` | All matching conditions fire -- message is sent to every matching route |
+
+```gflow
+| route {
+    mode: all
+    ok: ok_count > 0
+    nok: nok_count > 0
+    audit: *
+  }
+```
+
+With `mode: all`, if both `ok_count` and `nok_count` are greater than zero, the message is sent to the `ok`, `nok`, and `audit` routes simultaneously. Without `mode: all`, only the first matching route (`ok`) would receive the message.
 
 ### Route Destinations
 

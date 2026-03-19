@@ -243,6 +243,10 @@ public sealed class FlowValidator
             {
                 foreach (var key in step.Config.Keys)
                 {
+                    // Skip internal config keys (e.g., _route_mode)
+                    if (key.StartsWith('_'))
+                        continue;
+
                     routeConditions.Add(key);
                 }
             }

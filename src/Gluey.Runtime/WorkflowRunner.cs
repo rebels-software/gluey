@@ -188,20 +188,45 @@ public sealed class WorkflowRunner
     }
 
     /// <summary>
-    /// Routes a message to the appropriate output pipeline based on route metadata.
+    /// Routes a message to the appropriate output pipeline(s) based on route metadata.
+    /// Supports comma-separated route names for multi-route delivery (mode: all).
     /// </summary>
     /// <param name="message">The message to route.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     private async Task RouteMessageAsync(Message message, CancellationToken cancellationToken)
     {
         // Check for route metadata set by RouteTransform
-        if (message.Metadata.TryGetValue(RouteMetadataKey, out var routeName) &&
-            _routeOutputs.TryGetValue(routeName, out var routePipeline))
+        if (message.Metadata.TryGetValue(RouteMetadataKey, out var routeValue))
         {
-            // Execute the route-specific pipeline
-            await ExecuteRoutePipelineAsync(message, routePipeline, cancellationToken).ConfigureAwait(false);
+            // Check for comma-separated route names (mode: all)
+            if (routeValue.Contains(','))
+            {
+                var routeNames = routeValue.Split(',');
+                var tasks = new List<Task>();
+
+                foreach (var routeName in routeNames)
+                {
+                    if (_routeOutputs.TryGetValue(routeName, out var pipeline))
+                    {
+                        tasks.Add(ExecuteRoutePipelineAsync(message, pipeline, cancellationToken));
+                    }
+                }
+
+                if (tasks.Count > 0)
+                {
+                    await Task.WhenAll(tasks).ConfigureAwait(false);
+                    return;
+                }
+            }
+            else if (_routeOutputs.TryGetValue(routeValue, out var routePipeline))
+            {
+                // Single route name - existing behavior
+                await ExecuteRoutePipelineAsync(message, routePipeline, cancellationToken).ConfigureAwait(false);
+                return;
+            }
         }
-        else if (_defaultOutput != null)
+
+        if (_defaultOutput != null)
         {
             // No route match or no route metadata - use default output
             await WriteToOutputAsync(_defaultOutput, message, cancellationToken).ConfigureAwait(false);
