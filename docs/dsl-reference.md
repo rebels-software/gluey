@@ -231,6 +231,7 @@ Creates a new payload from field mappings.
 | Function | Returns | Description |
 |----------|---------|-------------|
 | `now()` | string | ISO 8601 timestamp (local timezone, e.g., `2026-03-20T15:30:45.123+01:00`) |
+| `utcnow()` | string | ISO 8601 timestamp (UTC, e.g., `2026-03-20T14:30:45.123Z`) |
 | `uuid()` | string | Random UUID |
 | `timestamp()` | number | Unix timestamp (milliseconds) |
 | `int(expr)` | integer | Convert to integer (truncates decimals) |

@@ -798,6 +798,7 @@ public sealed class ExpressionEvaluator
         return functionName.ToLowerInvariant() switch
         {
             "now" => DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss.fffzzz"), // ISO 8601 with local timezone offset
+            "utcnow" => DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"), // ISO 8601 UTC
             "uuid" => Guid.NewGuid().ToString(),
             "timestamp" => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             "int" => CastToInt(args.Count > 0 ? args[0] : null),
