@@ -277,7 +277,7 @@ Configuration is a map of output field names to expressions:
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `now()` | string | ISO 8601 timestamp (UTC) |
+| `now()` | string | ISO 8601 timestamp (local timezone, e.g., `2026-03-20T15:30:45.123+01:00`) |
 | `uuid()` | string | Random UUID |
 | `timestamp()` | number | Unix timestamp in milliseconds |
 | `int(expr)` | integer | Convert to integer (truncates decimals) |
@@ -799,7 +799,7 @@ Insert failures are logged to stderr but don't crash the workflow. This allows p
 **Type Handling**
 
 - Strings, numbers, booleans map directly to SQL types
-- ISO 8601 timestamps (from `now()`) convert to SQL TIMESTAMP
+- ISO 8601 timestamps (from `now()`) convert to SQL TIMESTAMP WITH TIME ZONE
 - Objects and arrays are stored as JSON strings
 - Null values are passed as DBNull
 
